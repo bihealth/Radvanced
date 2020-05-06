@@ -1,5 +1,5 @@
 ---
-title: "R Crash course / 01"
+title: "CUBI advanced R bioinformatics course / 01"
 author: ""
 date: "`r Sys.Date()`"
 output:
@@ -17,11 +17,9 @@ knitr::opts_chunk$set(echo=FALSE,warning=FALSE,message=FALSE,fig.width=5,fig.hei
 ```{r libraries,cache=FALSE}
 ```
 
-# R crash course
+# CUBI advanced R bioinformatics course
 
 ## Data
-
-![](images/selfie.jpg)
 
 January Weiner <january.weiner@bihealth.de>
 
@@ -33,173 +31,66 @@ To view the lectures, download the HTML file and open it in a browser.
 
 ## Aims
 
- * Give you a jump start
- * Give you good habits
+ * Empower you in collaboration with CUBI
+ * Explain what you see in our reports
+ * Give you the power to create own analyses and beautiful illustrations
 
-# How to start
+# Topics
 
-## Examples of R applications
+## Linear models and co
 
- * Why programming?
- * Why R?
- * Alternatives: Python, matlab, other statistical languages
+ * Basic analysis of differential transcription
+ * Interactions
+ * Contrasts
 
-## Example R session
+## Functional analysis
 
-## The rdesktop workplace
+ * Gene set enrichments
+ * Visualizations
+ * Investigation 
 
- * Windows
- * Menus
- * Workspace
+## Gene IDs and co.
 
-## Workspaces
+ * org.XX.eg.db
+ * Orthology:
+   * BiomaRt
+   * Orthomapper
 
- Workspace is basically a folder which contains a few special files in
- which R stores project-specific data.
+## ChIP-Seq
 
-  * `Rhistory` (hidden file) – a text file containing all commands that you
-    have issued
-  * `Rdata` (hidden file) – a binary file containing your workspace (all
-    variables created)
-  * `<filename>.Rproj` – Rstudio R project file containing some
-    rstudio-specific settings (text file)
-  * Anything else should be save by you
+ * Read coverage + visualization
+ * Differential binding
+ * ATAC-Seq
 
-## A few notes on R
+## Multivariate analyses
 
- * R vs matlab
- * "There is more than one way of doing it" (but one way will usually be
-   optimal)
- * Tidyverse vs standard R
- * ggplot vs basic plots
+ * PCA
+ * beyond PCA: t-SNE, ICA, UMAP
+ * combinding gene set enrichments with PCA
 
-# R language basics
+## Single cell RNA-Seq
 
-## R language basics
+ * Seurat
+ * Visualization
+ * Differential analysis
+ * Gene set enrichment analysis
 
- * Assignment and variables
- * vectors and multiple assignment
- * operators
- * functions
+# CUBI reports
 
-## Excercises 1
+## CUBI pipelines
 
- * create variables: a string, a number, a factor
- * create a factor variable 
- 
+ * What is a pipeline?
+ * How does it work?
+ * What output does it produce?
 
-## Excercises 2 
+## Example report
 
-there is a lake in a garden. Every day, the water lilies cover twice as
-much area as the previous day. On the first day, the water lilies cover
-1/100th of the area of the lake.
-
- * What is the formula to calculate the area covered by the water lilies on
-   day n?
- * assign days 1 ... 10 to variable x. Now assign the fraction of the area
-   covered by water lilies on day n to variable y
- * plot x vs y
- * When will the half of the area be covered by water lilies? Use `abline`
-   (what does it do?) to show a graphical solution
- 
-# Good coding practices
-
-## Remember: language is communication
-
- * Your code will be seen by others
- * And this is a good thing!
- * Documentation *is* important
- * Reproducibility matters
+ * GSE147507
 
 
-## Literate programming
+## Homework
 
-![Donald E. Knuth](images/knuth.jpg)
-
-
-## Literate programming
-
-I believe that the time is ripe for significantly better documentation
-of programs, and that we can best achieve this by considering
-programs to be works of literature. Hence, my title: “Literate
-Programming.”
-
-Let us change our traditional attitude to the construction of
-programs: Instead of imagining that our main task is to instruct a
-computer what to do, let us concentrate rather on explaining to
-human beings what we want a computer to do.
-
-(Donald E. Knuth)
-
-## Literate programming
-
-The practitioner of literate programming can be regarded as an
-essayist, whose main concern is with exposition and excellence of
-style. Such an author, with thesaurus in hand, chooses the names of
-variables carefully and explains what each variable means. He or she
-strives for a program that is comprehensible because its concepts
-have been introduced in an order that is best for human
-understanding, using a mixture of formal and informal methods that
-reinforce each other.
-
-(Donald E. Knuth)
-
-## Documenting your code
-
- * Better a lousy documentation than none at all
- * Use spaces, empty lines, comments to structure your code
- * COMMENT, COMMENT, COMMENT
- * Document in plain text files and source code files
-
-## Writing code
-
-Keep your code clean:
-
- * be consistent!
- * use meaningful variable and function names
- * don't use shorthands
- * refactorize
- * create distinct code chunks
- * split the code into meaningful scripts
- * use a formatting style and stick to it
-
-E.g.
-http://web.stanford.edu/class/cs109l/unrestricted/resources/google-style.html
-
-## Simplify!
-
- * make your code as simple as possible
- * make your functions versatile and simple
- * use simple data types if possible
- * don't overdo it!
-
-## You never know
-
- * what your code evolves into
- * when you will need to publish it
- * when someone will want to see it
-
-…so prepare in advance!
- 
- 
-
-## Functions
-
- * If you have to write something more than twice, you should turn it into
-   a function!
- * R is a *functional* language
-
-## Creating a function
-
-```
-#' Function name
-#' Function description
-some_name <- function(param1, param2=2) {
-
-## code comment
-<your code goes in here>
-
-}
-
-
-```
+ * Find GSE147507 on GEO
+ * Download counts data
+ * Read counts data into R
+ * Visualize the counts

@@ -1,0 +1,2099 @@
+---
+title: "DE Pipeline Report"
+date: "Last update: `r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float:
+        collapsed: true
+        smooth_scroll: true
+    toc_depth: 3
+    fig_caption: yes
+    number_sections: true
+fontsize: 14pt
+---
+
+<!---
+- Compile from command-line
+Rscript -e "rmarkdown::render('report.all.Rmd', c('html_document'), clean=FALSE)"
+-->
+
+```{r setup, echo=FALSE, message=FALSE}
+library(DESeq2)
+library(yaml)
+working_dir <- "/fast/work/projects/cubi-corona/2020_04_January/GSE147507/covid_GSE147507_report/"
+
+knitr::opts_knit$set(root.dir = working_dir)
+knitr::opts_chunk$set(dev="CairoPNG", fig.width=12, fig.height=8, echo=F, warning=T, message=F)
+ggplot2::theme_set(ggplot2::theme_bw())
+
+# variables and functions accessible from all chunks
+setwd(working_dir)
+config <- yaml.load_file("DE/all/pipeline_report/out/pipeline_report.all.yaml")
+
+file_tab <- data.frame(read.table("DE/all/report/out/report.all.tsv", sep="\t", header=TRUE))
+file_tab$filename <- as.character(file_tab$filename)
+
+r_common <- "/fast/work/users/jweiner_m/Projects/Software/sea-snap/report/R_common"
+source(paste0(r_common, "/basic_funcs.R"))
+source(paste0(r_common, "/basic_plots.R"))
+report_dir      <- file.path(working_dir, dirname("{{report-tsv}}"))
+PLOTS_BASE_DIR  <- file.path(report_dir, "plots")
+dir.create(PLOTS_BASE_DIR, recursive=TRUE, showWarnings=FALSE, mode="0750")
+```
+
+# Processed data 
+
+This is an interactive table of the covariate data.
+
+```{r DataTable}
+#----- import packages
+library(DT)
+library(magrittr)
+
+#----- load DESeqDataSet
+dds <- readRDS(subset(file_tab, step=="DESeq2" & extension=="deseq2.rds" & contrast=="all")$filename)
+covariate_table <- as.data.frame(colData(dds))
+covariate_table <- covariate_table[,c(2:dim(covariate_table)[2], 1)]
+
+#----- create table
+datatable(covariate_table, rownames=F, extensions='Buttons', escape=F,
+          options = list(scrollX = TRUE, dom='Bfrtip', buttons=c('copy', 'csv', 'pdf'))) %>%
+  formatStyle("filename","white-space"="nowrap") %>%
+  formatStyle("group","white-space"="nowrap") %>%
+  formatStyle("label","white-space"="nowrap")
+```
+
+
+# Normalisation quality control metrics  {.tabset}
+
+```{r normalisationQCsetup}
+require(magrittr)
+
+#----- load DESeqDataSet
+DDS       <- readRDS(subset(file_tab, step=="DESeq2" & extension=="deseq2.rds" & contrast=="all")$filename)
+RLD_BLIND <- readRDS(subset(file_tab, step=="DESeq2" & extension=="rld.blind.rds" & contrast=="all")$filename)
+RLD_MODEL <- readRDS(subset(file_tab, step=="DESeq2" & extension=="rld.model.rds" & contrast=="all")$filename)
+
+PLOTS_DIR  <- file.path(PLOTS_BASE_DIR, "NormalisationQC")
+dir.create(PLOTS_DIR, recursive=TRUE, showWarnings=FALSE, mode="0750")
+```
+
+
+## Principal component analysis 
+
+The principal component analysis plot shown below was generated using the most varying `r config$report$snippet_parameters$Normalisation_QC$n_most_varying` genes across all samples.
+The expression values are obtained by the "`r config$normalization$normalized_expression`" method, where the normalisation doesn't take into account the experimental design.
+
+In presence of strong biological signal, the samples should cluster with the biological condition.
+When samples are clustered according to other effects (for example patient, or technical batch), great care must be used when interpreting the results, as the other effects will considerably reduce the ability to extract meaningful biological information.
+
+```{r normalisationQCPCA}
+intgroups <- config$report$snippet_parameters$Normalisation_QC$annotation_columns
+intgroups <- intgroups[1:min(2,length(intgroups))]
+tmp <- plotPCA(RLD_BLIND, intgroup=intgroups, returnData=TRUE)
+percentVar <- 100 * attr(tmp, "percentVar")
+
+if (length(intgroups) == 1) {
+    p <- ggplot2::ggplot(tmp, ggplot2::aes_string(x="PC1", y="PC2", color=intgroups[1]))
+} else {
+    p <- ggplot2::ggplot(tmp, ggplot2::aes_string(x="PC1", y="PC2", color=intgroups[1], shape=intgroups[2]))
+}
+p <- p +
+    ggplot2::geom_point(size=3) +
+    ggplot2::labs(x=sprintf("PC1: %.0f %% variance", percentVar[1]), y=sprintf("PC2: %.0f %% variance", percentVar[2])) + 
+    ggplot2::coord_fixed()
+
+fn <- file.path(PLOTS_DIR, "PCA.pdf")
+multiplot(p, fn=fn)
+```
+
+[Download plot](`r fn`)
+
+## Hierarchical clustering 
+
+The hierarchical clustering shown below was generated using the most varying `r config$report$snippet_parameters$Normalisation_QC$n_most_varying` genes across all samples.
+The expression values are obtained by the "`r config$normalization$normalized_expression`" method, where the normalisation doesn't take into account the experimental design.
+The clustering is using euclidian distance for both the rows (genes) and columns (samples). In both cases, the distance between clusters is defined as the maximum of the distances between elements pairs from each cluster.
+
+The hierarchical clustering can provide clues on which groups of genes could affect the clustering of samples.
+
+```{r normalisationQCHclust}
+tmp <- SummarizedExperiment::assay(RLD_BLIND)
+tmp <- tmp[order(apply(tmp, 1, sd), decreasing=TRUE),,drop=FALSE]
+tmp <- tmp[1:min(nrow(tmp), config$report$snippet_parameters$Normalisation_QC$n_most_varying),,drop=FALSE]
+
+fn <- file.path(PLOTS_DIR, "HClust.pdf")
+p <- ggplotify::as.ggplot(pheatmap::pheatmap(tmp, show_rownames=(nrow(tmp)<=30), silent=TRUE))
+multiplot(p, fn=fn)
+```
+
+[Download plot](`r fn`)
+
+## Sample similarity 
+
+The hierarchical clustering shown below was generated using all the full normalised dataset (`r nrow(DDS)` genes).
+The expression values are obtained by the "`r config$normalization$normalized_expression`" method, where the normalisation doesn't take into account the experimental design.
+The clustering is using euclidian distance for both the rows (genes) and columns (samples). In both cases, the distance between clusters is defined as the maximum of the distances between elements pairs from each cluster.
+
+```{r normalisationQCSimilarity}
+d <- dist(t(SummarizedExperiment::assay(RLD_BLIND)))
+dMatrix <- as.matrix(d)
+
+fn <- file.path(PLOTS_DIR, "Similarity.pdf")
+p <- ggplotify::as.ggplot(pheatmap::pheatmap(
+    dMatrix,
+    clustering_distance_rows=d, clustering_distance_cols=d,
+    label_rows=colnames(RLD_BLIND), label_cols=NULL,
+    col=colorRampPalette(rev(RColorBrewer::brewer.pal(9, "Blues")))(255),
+    silent=TRUE
+))
+multiplot(p, fn=fn)
+```
+
+[Download plot](`r fn`)
+
+## Normalised expression densities 
+
+The expression values are obtained by the "`r config$normalization$normalized_expression`" method, where the experimental design has been used for normalisation.
+
+```{r normalisationQCDensity}
+tmp <- SummarizedExperiment::assay(RLD_MODEL)
+
+fn <- file.path(PLOTS_DIR, "Densities.pdf")
+p <- data.frame(gene_id=rownames(tmp), tmp, check.names=FALSE) %>%
+    tidyr::gather(Sample, Expression, -gene_id) %>%
+    ggplot2::ggplot(ggplot2::aes(x=Expression, color=Sample)) +
+    ggplot2::geom_density()
+multiplot(p, fn=fn)
+```
+
+[Download plot](`r fn`)
+
+## DESeq2 normalisation 
+
+```{r normalisationQCDeseq2prepare, include=FALSE}
+DESeq2::plotDispEsts(DDS)
+gridGraphics::grid.echo()
+ps <- list(ggplotify::as.ggplot(grid::grid.grab()))
+```
+
+```{r normalisationQCDeseq2, fig.height=7, fig.width=12}
+ps <- c(ps, list(vsn::meanSdPlot(SummarizedExperiment::assay(RLD_MODEL), plot=FALSE)$gg))
+
+fn <- file.path(PLOTS_DIR, "DESeq2_norm.pdf")
+multiplot(plotlist=ps, cols=2, fn=fn)
+```
+
+[Download plot](`r fn`)
+
+## Cox outliers 
+
+```{r normalisedQCOutliers}
+p <- data.frame(gene_id=rownames(DDS), SummarizedExperiment::assays(DDS)[["cooks"]], check.names=FALSE) %>%
+    tidyr::gather(Sample, cook, -gene_id) %>%
+    dplyr::mutate(cook=log10(cook)) %>%
+    ggplot2::ggplot(ggplot2::aes(x=Sample, y=cook)) +
+    ggplot2::geom_boxplot() + 
+    ggplot2::theme(axis.text.x=ggplot2::element_text(angle=90, vjust=0.5, hjust=1))
+
+fn <- file.path(PLOTS_DIR, "cook.pdf")
+multiplot(p, fn=fn)
+```
+
+[Download plot](`r fn`)
+
+# Contrasts 
+
+Contrasts generated by the pipeline.
+
+
+## NHBE_SC2V
+
+<!---
+initialize contrast variables
+-->
+
+```{r init_NHBE_SC2V_ID0, include=FALSE}
+RES         <- readRDS("DE/NHBE_SC2V_ID0/contrast/out/contrast.NHBE_SC2V_ID0.rds")
+CONTRAST_ID <- "NHBE_SC2V_ID0"
+```
+
+### MA plot 
+
+A MA plot of the contrast NHBE_SC2V.
+
+```{r MA_NHBE_SC2V_ID0}
+#----- load results
+res <- readRDS(subset(file_tab, step=="contrast" & extension=="rds" & contrast==CONTRAST_ID)$filename)
+
+#----- MA plot
+plotMA(res, ylim=c(-2,2))
+```
+
+
+### Results table 
+
+An interactive data table of the contrast results for NHBE_SC2V.
+
+```{r table_NHBE_SC2V_ID0}
+#----- import packages
+library(DT)
+library(magrittr)
+
+#----- load results
+res <- readRDS("DE/NHBE_SC2V_ID0/contrast/out/contrast.NHBE_SC2V_ID0.rds")
+results_table <- as.data.frame(res); ids <- is.element(colnames(results_table), c("entrez", "symbol"))
+results_table <- results_table[,c(which(ids), which(!ids))]
+
+#----- filter results
+results_table <- subset(results_table, padj < config$report$snippet_parameters$contrast$filter_results$qval)
+
+#----- interactive table
+datatable(results_table, extensions=c('Buttons','FixedColumns'), escape=FALSE,
+          options = list(scrollX=TRUE, fixedColumns=list(leftColumns=3), dom='Bfrtip', buttons='csv')) %>%
+  formatRound('baseMean', 3) %>%
+  formatRound('log2FoldChange', 3) %>%
+  formatRound('lfcSE', 3) %>%
+  formatRound('stat', 3) %>%
+  formatRound('pvalue', 4) %>%
+  formatRound('padj', 4)
+```
+
+
+```{r tmod_conf_NHBE_SC2V_ID0}
+#----- import packages
+require(tidyverse)
+require(pander)
+require(DT)
+
+# ---- get wildcards 
+c_id       <- "NHBE_SC2V_ID0"
+c_name     <- "NHBE_SC2V"
+tmod_res.f <- "DE/NHBE_SC2V_ID0/tmod/out/tmod.NHBE_SC2V_ID0.rds"
+
+# load tmod functions
+r.path <- "/fast/work/users/jweiner_m/Projects/Software/sea-snap/report/R_common"
+script_f <- file.path(r.path, "..", "..", "external_scripts", "tmod_functions.R")
+source(script_f)
+
+snip.par     <- config$report$snippet_parameters$tmod_contrast
+res_auc_thr  <- snip.par$res_auc_thr
+res_pval_thr <- snip.par$res_pval_thr
+if(is.null(res_auc_thr)) res_auc_thr <- .65
+if(is.null(res_pval_thr)) res_pval_thr <- .01
+
+## No wildcards beyond this point except in chunk names
+```
+
+```{r tmod_contrast_NHBE_SC2V_ID0}
+# load results table
+message(sprintf("tmod contrast %s, reading file %s", c_id, tmod_res.f))
+tmod_res <- readRDS(tmod_res.f)
+```
+
+
+### `tmod` enrichment analysis for `r c_name`
+
+
+**Table.** Summary of the results for contrast `r c_name` shows number of
+significant gene sets at various significance levels and for AUC > 0.65.
+
+```{r, results="asis"}
+pval.thr <- c(.01, .001, 1e-4, 1e-6)
+
+tmp <- imap_dfr(tmod_res, ~ {
+  .r <- .x
+  .rn <- .y
+  ret <- t(sapply(.r, function(.s) {
+    sapply(pval.thr, function(.pt) {
+      sum(.s$adj.P.Val < .pt & .s$AUC > 0.65, na.rm=TRUE)
+    })
+  }))
+  data.frame(DB=.y, ret)
+})
+
+colnames(tmp) <- c("DB", pval.thr)
+pandoc.table(tmp, row.names=FALSE, split.tables=Inf)
+```
+
+
+**Table.** Results of the tmod enrichment analysis for contrast `r c_name`.
+Only significantly enriched gene sets are shown (FDR < `r res_pval_thr`, 
+AUC > `r res_auc_thr`). **AUC**, area under curve; **p.value**, p-value
+from enrichment test; **FDR**, p-value corrected for multiple testing with
+Benjamini-Hochberg method.
+
+```{r, tmod_contrast_result_listNHBE_SC2V_ID0, results="asis"}
+## each datatable must be knitted in a separate chunk, otherwise it doesn't
+## work
+resU  <- unlist(tmod_res, recursive=FALSE)
+mytab <- data.frame(ID=1:3, foo=letters[1:3])
+
+template <- "
+\n```{r}
+datatable(mytab, extensions=c('Buttons','FixedColumns'), rownames=FALSE, escape=FALSE,
+        options = list(scrollX=TRUE, fixedColumns=list(leftColumns=1), dom='Bfrtip', buttons=c('excel', 'csv'))) %>%
+        formatSignif('p.value', 2) %>%
+        formatSignif('FDR', 2) %>%
+        formatSignif('AUC', 2)
+
+\n```
+
+"
+
+cat("\n##### {- .tabset}\n")
+
+for(db in names(resU)) {
+  mytab <- tmod_filter_format_res(resU[[db]], pval.thr=res_pval_thr, AUC.thr=res_auc_thr)
+  cat(sprintf("\n###### %s {-}\n", db))
+  if(!is.null(resU[[db]]) && nrow(mytab) > 0) {
+    out <- knitr::knit_child(text=template, quiet=TRUE)
+    cat(out)
+  } else {
+    cat("**No results at the specified thresholds**\n")
+  }
+
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+### cluster profiler results 
+
+```{r clusterprofilersetup_NHBE_SC2V_ID0}
+require(magrittr)
+
+#----- load cluster profiler results
+ENRES <- readRDS(subset(file_tab, step=="cluster_profiler" & extension=="rds" & contrast=="NHBE_SC2V_ID0")$filename)
+
+PLOTS_DIR  <- file.path(PLOTS_BASE_DIR, "cluster_profiler")
+dir.create(PLOTS_DIR, recursive=TRUE, showWarnings=FALSE, mode="0750")
+```
+
+
+#### Dot plot  {.tabset .tabset-pills}
+
+Dot plot for `cluster profiler` results for contrast NHBE_SC2V.
+
+```{r clusterprofiler_dotplot_NHBE_SC2V_ID0, results="asis"}
+library(enrichplot)
+
+for (test in names(ENRES)){
+  cat(sprintf("\n##### %s {- .tabset}\n", test))
+  for (cat in names(ENRES[[test]])){
+    cat(sprintf("\n###### %s {-}\n", cat))
+    
+    try({print(dotplot(ENRES[[test]][[cat]], showCategory=20)); cat("\n")})
+  }
+}
+```
+
+
+#### Enrichment map  {.tabset .tabset-pills}
+
+Enrichment map for `cluster profiler` results for contrast NHBE_SC2V.
+
+```{r clusterprofiler_enrichmentmap_NHBE_SC2V_ID0, results="asis"}
+library(enrichplot)
+
+for (test in names(ENRES)){
+  cat(sprintf("\n##### %s {- .tabset}\n", test))
+  for (cat in names(ENRES[[test]])){
+    cat(sprintf("\n###### %s {-}\n", cat))
+    
+    try({print(emapplot(ENRES[[test]][[cat]])); cat("\n")})
+  }
+}
+```
+
+
+#### UpSet plot  {.tabset .tabset-pills}
+
+UpSet plot for `cluster profiler` results for contrast NHBE_SC2V.
+
+```{r clusterprofiler_upsetplot_NHBE_SC2V_ID0, results="asis"}
+library(enrichplot)
+
+for (test in names(ENRES)){
+  cat(sprintf("\n##### %s {- .tabset}\n", test))
+  for (cat in names(ENRES[[test]])){
+    cat(sprintf("\n###### %s {-}\n", cat))
+    
+    try({print(upsetplot(ENRES[[test]][[cat]])); cat("\n")})
+  }
+}
+```
+
+## A549_SC2V
+
+<!---
+initialize contrast variables
+-->
+
+```{r init_A549_SC2V_ID1, include=FALSE}
+RES         <- readRDS("DE/A549_SC2V_ID1/contrast/out/contrast.A549_SC2V_ID1.rds")
+CONTRAST_ID <- "A549_SC2V_ID1"
+```
+
+### MA plot 
+
+A MA plot of the contrast A549_SC2V.
+
+```{r MA_A549_SC2V_ID1}
+#----- load results
+res <- readRDS(subset(file_tab, step=="contrast" & extension=="rds" & contrast==CONTRAST_ID)$filename)
+
+#----- MA plot
+plotMA(res, ylim=c(-2,2))
+```
+
+
+### Results table 
+
+An interactive data table of the contrast results for A549_SC2V.
+
+```{r table_A549_SC2V_ID1}
+#----- import packages
+library(DT)
+library(magrittr)
+
+#----- load results
+res <- readRDS("DE/A549_SC2V_ID1/contrast/out/contrast.A549_SC2V_ID1.rds")
+results_table <- as.data.frame(res); ids <- is.element(colnames(results_table), c("entrez", "symbol"))
+results_table <- results_table[,c(which(ids), which(!ids))]
+
+#----- filter results
+results_table <- subset(results_table, padj < config$report$snippet_parameters$contrast$filter_results$qval)
+
+#----- interactive table
+datatable(results_table, extensions=c('Buttons','FixedColumns'), escape=FALSE,
+          options = list(scrollX=TRUE, fixedColumns=list(leftColumns=3), dom='Bfrtip', buttons='csv')) %>%
+  formatRound('baseMean', 3) %>%
+  formatRound('log2FoldChange', 3) %>%
+  formatRound('lfcSE', 3) %>%
+  formatRound('stat', 3) %>%
+  formatRound('pvalue', 4) %>%
+  formatRound('padj', 4)
+```
+
+
+```{r tmod_conf_A549_SC2V_ID1}
+#----- import packages
+require(tidyverse)
+require(pander)
+require(DT)
+
+# ---- get wildcards 
+c_id       <- "A549_SC2V_ID1"
+c_name     <- "A549_SC2V"
+tmod_res.f <- "DE/A549_SC2V_ID1/tmod/out/tmod.A549_SC2V_ID1.rds"
+
+# load tmod functions
+r.path <- "/fast/work/users/jweiner_m/Projects/Software/sea-snap/report/R_common"
+script_f <- file.path(r.path, "..", "..", "external_scripts", "tmod_functions.R")
+source(script_f)
+
+snip.par     <- config$report$snippet_parameters$tmod_contrast
+res_auc_thr  <- snip.par$res_auc_thr
+res_pval_thr <- snip.par$res_pval_thr
+if(is.null(res_auc_thr)) res_auc_thr <- .65
+if(is.null(res_pval_thr)) res_pval_thr <- .01
+
+## No wildcards beyond this point except in chunk names
+```
+
+```{r tmod_contrast_A549_SC2V_ID1}
+# load results table
+message(sprintf("tmod contrast %s, reading file %s", c_id, tmod_res.f))
+tmod_res <- readRDS(tmod_res.f)
+```
+
+
+### `tmod` enrichment analysis for `r c_name`
+
+
+**Table.** Summary of the results for contrast `r c_name` shows number of
+significant gene sets at various significance levels and for AUC > 0.65.
+
+```{r, results="asis"}
+pval.thr <- c(.01, .001, 1e-4, 1e-6)
+
+tmp <- imap_dfr(tmod_res, ~ {
+  .r <- .x
+  .rn <- .y
+  ret <- t(sapply(.r, function(.s) {
+    sapply(pval.thr, function(.pt) {
+      sum(.s$adj.P.Val < .pt & .s$AUC > 0.65, na.rm=TRUE)
+    })
+  }))
+  data.frame(DB=.y, ret)
+})
+
+colnames(tmp) <- c("DB", pval.thr)
+pandoc.table(tmp, row.names=FALSE, split.tables=Inf)
+```
+
+
+**Table.** Results of the tmod enrichment analysis for contrast `r c_name`.
+Only significantly enriched gene sets are shown (FDR < `r res_pval_thr`, 
+AUC > `r res_auc_thr`). **AUC**, area under curve; **p.value**, p-value
+from enrichment test; **FDR**, p-value corrected for multiple testing with
+Benjamini-Hochberg method.
+
+```{r, tmod_contrast_result_listA549_SC2V_ID1, results="asis"}
+## each datatable must be knitted in a separate chunk, otherwise it doesn't
+## work
+resU  <- unlist(tmod_res, recursive=FALSE)
+mytab <- data.frame(ID=1:3, foo=letters[1:3])
+
+template <- "
+\n```{r}
+datatable(mytab, extensions=c('Buttons','FixedColumns'), rownames=FALSE, escape=FALSE,
+        options = list(scrollX=TRUE, fixedColumns=list(leftColumns=1), dom='Bfrtip', buttons=c('excel', 'csv'))) %>%
+        formatSignif('p.value', 2) %>%
+        formatSignif('FDR', 2) %>%
+        formatSignif('AUC', 2)
+
+\n```
+
+"
+
+cat("\n##### {- .tabset}\n")
+
+for(db in names(resU)) {
+  mytab <- tmod_filter_format_res(resU[[db]], pval.thr=res_pval_thr, AUC.thr=res_auc_thr)
+  cat(sprintf("\n###### %s {-}\n", db))
+  if(!is.null(resU[[db]]) && nrow(mytab) > 0) {
+    out <- knitr::knit_child(text=template, quiet=TRUE)
+    cat(out)
+  } else {
+    cat("**No results at the specified thresholds**\n")
+  }
+
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+### cluster profiler results 
+
+```{r clusterprofilersetup_A549_SC2V_ID1}
+require(magrittr)
+
+#----- load cluster profiler results
+ENRES <- readRDS(subset(file_tab, step=="cluster_profiler" & extension=="rds" & contrast=="A549_SC2V_ID1")$filename)
+
+PLOTS_DIR  <- file.path(PLOTS_BASE_DIR, "cluster_profiler")
+dir.create(PLOTS_DIR, recursive=TRUE, showWarnings=FALSE, mode="0750")
+```
+
+
+#### Dot plot  {.tabset .tabset-pills}
+
+Dot plot for `cluster profiler` results for contrast A549_SC2V.
+
+```{r clusterprofiler_dotplot_A549_SC2V_ID1, results="asis"}
+library(enrichplot)
+
+for (test in names(ENRES)){
+  cat(sprintf("\n##### %s {- .tabset}\n", test))
+  for (cat in names(ENRES[[test]])){
+    cat(sprintf("\n###### %s {-}\n", cat))
+    
+    try({print(dotplot(ENRES[[test]][[cat]], showCategory=20)); cat("\n")})
+  }
+}
+```
+
+
+#### Enrichment map  {.tabset .tabset-pills}
+
+Enrichment map for `cluster profiler` results for contrast A549_SC2V.
+
+```{r clusterprofiler_enrichmentmap_A549_SC2V_ID1, results="asis"}
+library(enrichplot)
+
+for (test in names(ENRES)){
+  cat(sprintf("\n##### %s {- .tabset}\n", test))
+  for (cat in names(ENRES[[test]])){
+    cat(sprintf("\n###### %s {-}\n", cat))
+    
+    try({print(emapplot(ENRES[[test]][[cat]])); cat("\n")})
+  }
+}
+```
+
+
+#### UpSet plot  {.tabset .tabset-pills}
+
+UpSet plot for `cluster profiler` results for contrast A549_SC2V.
+
+```{r clusterprofiler_upsetplot_A549_SC2V_ID1, results="asis"}
+library(enrichplot)
+
+for (test in names(ENRES)){
+  cat(sprintf("\n##### %s {- .tabset}\n", test))
+  for (cat in names(ENRES[[test]])){
+    cat(sprintf("\n###### %s {-}\n", cat))
+    
+    try({print(upsetplot(ENRES[[test]][[cat]])); cat("\n")})
+  }
+}
+```
+
+## A549_RSV
+
+<!---
+initialize contrast variables
+-->
+
+```{r init_A549_RSV_ID2, include=FALSE}
+RES         <- readRDS("DE/A549_RSV_ID2/contrast/out/contrast.A549_RSV_ID2.rds")
+CONTRAST_ID <- "A549_RSV_ID2"
+```
+
+### MA plot 
+
+A MA plot of the contrast A549_RSV.
+
+```{r MA_A549_RSV_ID2}
+#----- load results
+res <- readRDS(subset(file_tab, step=="contrast" & extension=="rds" & contrast==CONTRAST_ID)$filename)
+
+#----- MA plot
+plotMA(res, ylim=c(-2,2))
+```
+
+
+### Results table 
+
+An interactive data table of the contrast results for A549_RSV.
+
+```{r table_A549_RSV_ID2}
+#----- import packages
+library(DT)
+library(magrittr)
+
+#----- load results
+res <- readRDS("DE/A549_RSV_ID2/contrast/out/contrast.A549_RSV_ID2.rds")
+results_table <- as.data.frame(res); ids <- is.element(colnames(results_table), c("entrez", "symbol"))
+results_table <- results_table[,c(which(ids), which(!ids))]
+
+#----- filter results
+results_table <- subset(results_table, padj < config$report$snippet_parameters$contrast$filter_results$qval)
+
+#----- interactive table
+datatable(results_table, extensions=c('Buttons','FixedColumns'), escape=FALSE,
+          options = list(scrollX=TRUE, fixedColumns=list(leftColumns=3), dom='Bfrtip', buttons='csv')) %>%
+  formatRound('baseMean', 3) %>%
+  formatRound('log2FoldChange', 3) %>%
+  formatRound('lfcSE', 3) %>%
+  formatRound('stat', 3) %>%
+  formatRound('pvalue', 4) %>%
+  formatRound('padj', 4)
+```
+
+
+```{r tmod_conf_A549_RSV_ID2}
+#----- import packages
+require(tidyverse)
+require(pander)
+require(DT)
+
+# ---- get wildcards 
+c_id       <- "A549_RSV_ID2"
+c_name     <- "A549_RSV"
+tmod_res.f <- "DE/A549_RSV_ID2/tmod/out/tmod.A549_RSV_ID2.rds"
+
+# load tmod functions
+r.path <- "/fast/work/users/jweiner_m/Projects/Software/sea-snap/report/R_common"
+script_f <- file.path(r.path, "..", "..", "external_scripts", "tmod_functions.R")
+source(script_f)
+
+snip.par     <- config$report$snippet_parameters$tmod_contrast
+res_auc_thr  <- snip.par$res_auc_thr
+res_pval_thr <- snip.par$res_pval_thr
+if(is.null(res_auc_thr)) res_auc_thr <- .65
+if(is.null(res_pval_thr)) res_pval_thr <- .01
+
+## No wildcards beyond this point except in chunk names
+```
+
+```{r tmod_contrast_A549_RSV_ID2}
+# load results table
+message(sprintf("tmod contrast %s, reading file %s", c_id, tmod_res.f))
+tmod_res <- readRDS(tmod_res.f)
+```
+
+
+### `tmod` enrichment analysis for `r c_name`
+
+
+**Table.** Summary of the results for contrast `r c_name` shows number of
+significant gene sets at various significance levels and for AUC > 0.65.
+
+```{r, results="asis"}
+pval.thr <- c(.01, .001, 1e-4, 1e-6)
+
+tmp <- imap_dfr(tmod_res, ~ {
+  .r <- .x
+  .rn <- .y
+  ret <- t(sapply(.r, function(.s) {
+    sapply(pval.thr, function(.pt) {
+      sum(.s$adj.P.Val < .pt & .s$AUC > 0.65, na.rm=TRUE)
+    })
+  }))
+  data.frame(DB=.y, ret)
+})
+
+colnames(tmp) <- c("DB", pval.thr)
+pandoc.table(tmp, row.names=FALSE, split.tables=Inf)
+```
+
+
+**Table.** Results of the tmod enrichment analysis for contrast `r c_name`.
+Only significantly enriched gene sets are shown (FDR < `r res_pval_thr`, 
+AUC > `r res_auc_thr`). **AUC**, area under curve; **p.value**, p-value
+from enrichment test; **FDR**, p-value corrected for multiple testing with
+Benjamini-Hochberg method.
+
+```{r, tmod_contrast_result_listA549_RSV_ID2, results="asis"}
+## each datatable must be knitted in a separate chunk, otherwise it doesn't
+## work
+resU  <- unlist(tmod_res, recursive=FALSE)
+mytab <- data.frame(ID=1:3, foo=letters[1:3])
+
+template <- "
+\n```{r}
+datatable(mytab, extensions=c('Buttons','FixedColumns'), rownames=FALSE, escape=FALSE,
+        options = list(scrollX=TRUE, fixedColumns=list(leftColumns=1), dom='Bfrtip', buttons=c('excel', 'csv'))) %>%
+        formatSignif('p.value', 2) %>%
+        formatSignif('FDR', 2) %>%
+        formatSignif('AUC', 2)
+
+\n```
+
+"
+
+cat("\n##### {- .tabset}\n")
+
+for(db in names(resU)) {
+  mytab <- tmod_filter_format_res(resU[[db]], pval.thr=res_pval_thr, AUC.thr=res_auc_thr)
+  cat(sprintf("\n###### %s {-}\n", db))
+  if(!is.null(resU[[db]]) && nrow(mytab) > 0) {
+    out <- knitr::knit_child(text=template, quiet=TRUE)
+    cat(out)
+  } else {
+    cat("**No results at the specified thresholds**\n")
+  }
+
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+### cluster profiler results 
+
+```{r clusterprofilersetup_A549_RSV_ID2}
+require(magrittr)
+
+#----- load cluster profiler results
+ENRES <- readRDS(subset(file_tab, step=="cluster_profiler" & extension=="rds" & contrast=="A549_RSV_ID2")$filename)
+
+PLOTS_DIR  <- file.path(PLOTS_BASE_DIR, "cluster_profiler")
+dir.create(PLOTS_DIR, recursive=TRUE, showWarnings=FALSE, mode="0750")
+```
+
+
+#### Dot plot  {.tabset .tabset-pills}
+
+Dot plot for `cluster profiler` results for contrast A549_RSV.
+
+```{r clusterprofiler_dotplot_A549_RSV_ID2, results="asis"}
+library(enrichplot)
+
+for (test in names(ENRES)){
+  cat(sprintf("\n##### %s {- .tabset}\n", test))
+  for (cat in names(ENRES[[test]])){
+    cat(sprintf("\n###### %s {-}\n", cat))
+    
+    try({print(dotplot(ENRES[[test]][[cat]], showCategory=20)); cat("\n")})
+  }
+}
+```
+
+
+#### Enrichment map  {.tabset .tabset-pills}
+
+Enrichment map for `cluster profiler` results for contrast A549_RSV.
+
+```{r clusterprofiler_enrichmentmap_A549_RSV_ID2, results="asis"}
+library(enrichplot)
+
+for (test in names(ENRES)){
+  cat(sprintf("\n##### %s {- .tabset}\n", test))
+  for (cat in names(ENRES[[test]])){
+    cat(sprintf("\n###### %s {-}\n", cat))
+    
+    try({print(emapplot(ENRES[[test]][[cat]])); cat("\n")})
+  }
+}
+```
+
+
+#### UpSet plot  {.tabset .tabset-pills}
+
+UpSet plot for `cluster profiler` results for contrast A549_RSV.
+
+```{r clusterprofiler_upsetplot_A549_RSV_ID2, results="asis"}
+library(enrichplot)
+
+for (test in names(ENRES)){
+  cat(sprintf("\n##### %s {- .tabset}\n", test))
+  for (cat in names(ENRES[[test]])){
+    cat(sprintf("\n###### %s {-}\n", cat))
+    
+    try({print(upsetplot(ENRES[[test]][[cat]])); cat("\n")})
+  }
+}
+```
+
+## A549_IAV
+
+<!---
+initialize contrast variables
+-->
+
+```{r init_A549_IAV_ID3, include=FALSE}
+RES         <- readRDS("DE/A549_IAV_ID3/contrast/out/contrast.A549_IAV_ID3.rds")
+CONTRAST_ID <- "A549_IAV_ID3"
+```
+
+### MA plot 
+
+A MA plot of the contrast A549_IAV.
+
+```{r MA_A549_IAV_ID3}
+#----- load results
+res <- readRDS(subset(file_tab, step=="contrast" & extension=="rds" & contrast==CONTRAST_ID)$filename)
+
+#----- MA plot
+plotMA(res, ylim=c(-2,2))
+```
+
+
+### Results table 
+
+An interactive data table of the contrast results for A549_IAV.
+
+```{r table_A549_IAV_ID3}
+#----- import packages
+library(DT)
+library(magrittr)
+
+#----- load results
+res <- readRDS("DE/A549_IAV_ID3/contrast/out/contrast.A549_IAV_ID3.rds")
+results_table <- as.data.frame(res); ids <- is.element(colnames(results_table), c("entrez", "symbol"))
+results_table <- results_table[,c(which(ids), which(!ids))]
+
+#----- filter results
+results_table <- subset(results_table, padj < config$report$snippet_parameters$contrast$filter_results$qval)
+
+#----- interactive table
+datatable(results_table, extensions=c('Buttons','FixedColumns'), escape=FALSE,
+          options = list(scrollX=TRUE, fixedColumns=list(leftColumns=3), dom='Bfrtip', buttons='csv')) %>%
+  formatRound('baseMean', 3) %>%
+  formatRound('log2FoldChange', 3) %>%
+  formatRound('lfcSE', 3) %>%
+  formatRound('stat', 3) %>%
+  formatRound('pvalue', 4) %>%
+  formatRound('padj', 4)
+```
+
+
+```{r tmod_conf_A549_IAV_ID3}
+#----- import packages
+require(tidyverse)
+require(pander)
+require(DT)
+
+# ---- get wildcards 
+c_id       <- "A549_IAV_ID3"
+c_name     <- "A549_IAV"
+tmod_res.f <- "DE/A549_IAV_ID3/tmod/out/tmod.A549_IAV_ID3.rds"
+
+# load tmod functions
+r.path <- "/fast/work/users/jweiner_m/Projects/Software/sea-snap/report/R_common"
+script_f <- file.path(r.path, "..", "..", "external_scripts", "tmod_functions.R")
+source(script_f)
+
+snip.par     <- config$report$snippet_parameters$tmod_contrast
+res_auc_thr  <- snip.par$res_auc_thr
+res_pval_thr <- snip.par$res_pval_thr
+if(is.null(res_auc_thr)) res_auc_thr <- .65
+if(is.null(res_pval_thr)) res_pval_thr <- .01
+
+## No wildcards beyond this point except in chunk names
+```
+
+```{r tmod_contrast_A549_IAV_ID3}
+# load results table
+message(sprintf("tmod contrast %s, reading file %s", c_id, tmod_res.f))
+tmod_res <- readRDS(tmod_res.f)
+```
+
+
+### `tmod` enrichment analysis for `r c_name`
+
+
+**Table.** Summary of the results for contrast `r c_name` shows number of
+significant gene sets at various significance levels and for AUC > 0.65.
+
+```{r, results="asis"}
+pval.thr <- c(.01, .001, 1e-4, 1e-6)
+
+tmp <- imap_dfr(tmod_res, ~ {
+  .r <- .x
+  .rn <- .y
+  ret <- t(sapply(.r, function(.s) {
+    sapply(pval.thr, function(.pt) {
+      sum(.s$adj.P.Val < .pt & .s$AUC > 0.65, na.rm=TRUE)
+    })
+  }))
+  data.frame(DB=.y, ret)
+})
+
+colnames(tmp) <- c("DB", pval.thr)
+pandoc.table(tmp, row.names=FALSE, split.tables=Inf)
+```
+
+
+**Table.** Results of the tmod enrichment analysis for contrast `r c_name`.
+Only significantly enriched gene sets are shown (FDR < `r res_pval_thr`, 
+AUC > `r res_auc_thr`). **AUC**, area under curve; **p.value**, p-value
+from enrichment test; **FDR**, p-value corrected for multiple testing with
+Benjamini-Hochberg method.
+
+```{r, tmod_contrast_result_listA549_IAV_ID3, results="asis"}
+## each datatable must be knitted in a separate chunk, otherwise it doesn't
+## work
+resU  <- unlist(tmod_res, recursive=FALSE)
+mytab <- data.frame(ID=1:3, foo=letters[1:3])
+
+template <- "
+\n```{r}
+datatable(mytab, extensions=c('Buttons','FixedColumns'), rownames=FALSE, escape=FALSE,
+        options = list(scrollX=TRUE, fixedColumns=list(leftColumns=1), dom='Bfrtip', buttons=c('excel', 'csv'))) %>%
+        formatSignif('p.value', 2) %>%
+        formatSignif('FDR', 2) %>%
+        formatSignif('AUC', 2)
+
+\n```
+
+"
+
+cat("\n##### {- .tabset}\n")
+
+for(db in names(resU)) {
+  mytab <- tmod_filter_format_res(resU[[db]], pval.thr=res_pval_thr, AUC.thr=res_auc_thr)
+  cat(sprintf("\n###### %s {-}\n", db))
+  if(!is.null(resU[[db]]) && nrow(mytab) > 0) {
+    out <- knitr::knit_child(text=template, quiet=TRUE)
+    cat(out)
+  } else {
+    cat("**No results at the specified thresholds**\n")
+  }
+
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+### cluster profiler results 
+
+```{r clusterprofilersetup_A549_IAV_ID3}
+require(magrittr)
+
+#----- load cluster profiler results
+ENRES <- readRDS(subset(file_tab, step=="cluster_profiler" & extension=="rds" & contrast=="A549_IAV_ID3")$filename)
+
+PLOTS_DIR  <- file.path(PLOTS_BASE_DIR, "cluster_profiler")
+dir.create(PLOTS_DIR, recursive=TRUE, showWarnings=FALSE, mode="0750")
+```
+
+
+#### Dot plot  {.tabset .tabset-pills}
+
+Dot plot for `cluster profiler` results for contrast A549_IAV.
+
+```{r clusterprofiler_dotplot_A549_IAV_ID3, results="asis"}
+library(enrichplot)
+
+for (test in names(ENRES)){
+  cat(sprintf("\n##### %s {- .tabset}\n", test))
+  for (cat in names(ENRES[[test]])){
+    cat(sprintf("\n###### %s {-}\n", cat))
+    
+    try({print(dotplot(ENRES[[test]][[cat]], showCategory=20)); cat("\n")})
+  }
+}
+```
+
+
+#### Enrichment map  {.tabset .tabset-pills}
+
+Enrichment map for `cluster profiler` results for contrast A549_IAV.
+
+```{r clusterprofiler_enrichmentmap_A549_IAV_ID3, results="asis"}
+library(enrichplot)
+
+for (test in names(ENRES)){
+  cat(sprintf("\n##### %s {- .tabset}\n", test))
+  for (cat in names(ENRES[[test]])){
+    cat(sprintf("\n###### %s {-}\n", cat))
+    
+    try({print(emapplot(ENRES[[test]][[cat]])); cat("\n")})
+  }
+}
+```
+
+
+#### UpSet plot  {.tabset .tabset-pills}
+
+UpSet plot for `cluster profiler` results for contrast A549_IAV.
+
+```{r clusterprofiler_upsetplot_A549_IAV_ID3, results="asis"}
+library(enrichplot)
+
+for (test in names(ENRES)){
+  cat(sprintf("\n##### %s {- .tabset}\n", test))
+  for (cat in names(ENRES[[test]])){
+    cat(sprintf("\n###### %s {-}\n", cat))
+    
+    try({print(upsetplot(ENRES[[test]][[cat]])); cat("\n")})
+  }
+}
+```
+
+## A549_SC2V_vs_IAV
+
+<!---
+initialize contrast variables
+-->
+
+```{r init_A549_SC2V_vs_IAV_ID4, include=FALSE}
+RES         <- readRDS("DE/A549_SC2V_vs_IAV_ID4/contrast/out/contrast.A549_SC2V_vs_IAV_ID4.rds")
+CONTRAST_ID <- "A549_SC2V_vs_IAV_ID4"
+```
+
+### MA plot 
+
+A MA plot of the contrast A549_SC2V_vs_IAV.
+
+```{r MA_A549_SC2V_vs_IAV_ID4}
+#----- load results
+res <- readRDS(subset(file_tab, step=="contrast" & extension=="rds" & contrast==CONTRAST_ID)$filename)
+
+#----- MA plot
+plotMA(res, ylim=c(-2,2))
+```
+
+
+### Results table 
+
+An interactive data table of the contrast results for A549_SC2V_vs_IAV.
+
+```{r table_A549_SC2V_vs_IAV_ID4}
+#----- import packages
+library(DT)
+library(magrittr)
+
+#----- load results
+res <- readRDS("DE/A549_SC2V_vs_IAV_ID4/contrast/out/contrast.A549_SC2V_vs_IAV_ID4.rds")
+results_table <- as.data.frame(res); ids <- is.element(colnames(results_table), c("entrez", "symbol"))
+results_table <- results_table[,c(which(ids), which(!ids))]
+
+#----- filter results
+results_table <- subset(results_table, padj < config$report$snippet_parameters$contrast$filter_results$qval)
+
+#----- interactive table
+datatable(results_table, extensions=c('Buttons','FixedColumns'), escape=FALSE,
+          options = list(scrollX=TRUE, fixedColumns=list(leftColumns=3), dom='Bfrtip', buttons='csv')) %>%
+  formatRound('baseMean', 3) %>%
+  formatRound('log2FoldChange', 3) %>%
+  formatRound('lfcSE', 3) %>%
+  formatRound('stat', 3) %>%
+  formatRound('pvalue', 4) %>%
+  formatRound('padj', 4)
+```
+
+
+```{r tmod_conf_A549_SC2V_vs_IAV_ID4}
+#----- import packages
+require(tidyverse)
+require(pander)
+require(DT)
+
+# ---- get wildcards 
+c_id       <- "A549_SC2V_vs_IAV_ID4"
+c_name     <- "A549_SC2V_vs_IAV"
+tmod_res.f <- "DE/A549_SC2V_vs_IAV_ID4/tmod/out/tmod.A549_SC2V_vs_IAV_ID4.rds"
+
+# load tmod functions
+r.path <- "/fast/work/users/jweiner_m/Projects/Software/sea-snap/report/R_common"
+script_f <- file.path(r.path, "..", "..", "external_scripts", "tmod_functions.R")
+source(script_f)
+
+snip.par     <- config$report$snippet_parameters$tmod_contrast
+res_auc_thr  <- snip.par$res_auc_thr
+res_pval_thr <- snip.par$res_pval_thr
+if(is.null(res_auc_thr)) res_auc_thr <- .65
+if(is.null(res_pval_thr)) res_pval_thr <- .01
+
+## No wildcards beyond this point except in chunk names
+```
+
+```{r tmod_contrast_A549_SC2V_vs_IAV_ID4}
+# load results table
+message(sprintf("tmod contrast %s, reading file %s", c_id, tmod_res.f))
+tmod_res <- readRDS(tmod_res.f)
+```
+
+
+### `tmod` enrichment analysis for `r c_name`
+
+
+**Table.** Summary of the results for contrast `r c_name` shows number of
+significant gene sets at various significance levels and for AUC > 0.65.
+
+```{r, results="asis"}
+pval.thr <- c(.01, .001, 1e-4, 1e-6)
+
+tmp <- imap_dfr(tmod_res, ~ {
+  .r <- .x
+  .rn <- .y
+  ret <- t(sapply(.r, function(.s) {
+    sapply(pval.thr, function(.pt) {
+      sum(.s$adj.P.Val < .pt & .s$AUC > 0.65, na.rm=TRUE)
+    })
+  }))
+  data.frame(DB=.y, ret)
+})
+
+colnames(tmp) <- c("DB", pval.thr)
+pandoc.table(tmp, row.names=FALSE, split.tables=Inf)
+```
+
+
+**Table.** Results of the tmod enrichment analysis for contrast `r c_name`.
+Only significantly enriched gene sets are shown (FDR < `r res_pval_thr`, 
+AUC > `r res_auc_thr`). **AUC**, area under curve; **p.value**, p-value
+from enrichment test; **FDR**, p-value corrected for multiple testing with
+Benjamini-Hochberg method.
+
+```{r, tmod_contrast_result_listA549_SC2V_vs_IAV_ID4, results="asis"}
+## each datatable must be knitted in a separate chunk, otherwise it doesn't
+## work
+resU  <- unlist(tmod_res, recursive=FALSE)
+mytab <- data.frame(ID=1:3, foo=letters[1:3])
+
+template <- "
+\n```{r}
+datatable(mytab, extensions=c('Buttons','FixedColumns'), rownames=FALSE, escape=FALSE,
+        options = list(scrollX=TRUE, fixedColumns=list(leftColumns=1), dom='Bfrtip', buttons=c('excel', 'csv'))) %>%
+        formatSignif('p.value', 2) %>%
+        formatSignif('FDR', 2) %>%
+        formatSignif('AUC', 2)
+
+\n```
+
+"
+
+cat("\n##### {- .tabset}\n")
+
+for(db in names(resU)) {
+  mytab <- tmod_filter_format_res(resU[[db]], pval.thr=res_pval_thr, AUC.thr=res_auc_thr)
+  cat(sprintf("\n###### %s {-}\n", db))
+  if(!is.null(resU[[db]]) && nrow(mytab) > 0) {
+    out <- knitr::knit_child(text=template, quiet=TRUE)
+    cat(out)
+  } else {
+    cat("**No results at the specified thresholds**\n")
+  }
+
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+### cluster profiler results 
+
+```{r clusterprofilersetup_A549_SC2V_vs_IAV_ID4}
+require(magrittr)
+
+#----- load cluster profiler results
+ENRES <- readRDS(subset(file_tab, step=="cluster_profiler" & extension=="rds" & contrast=="A549_SC2V_vs_IAV_ID4")$filename)
+
+PLOTS_DIR  <- file.path(PLOTS_BASE_DIR, "cluster_profiler")
+dir.create(PLOTS_DIR, recursive=TRUE, showWarnings=FALSE, mode="0750")
+```
+
+
+#### Dot plot  {.tabset .tabset-pills}
+
+Dot plot for `cluster profiler` results for contrast A549_SC2V_vs_IAV.
+
+```{r clusterprofiler_dotplot_A549_SC2V_vs_IAV_ID4, results="asis"}
+library(enrichplot)
+
+for (test in names(ENRES)){
+  cat(sprintf("\n##### %s {- .tabset}\n", test))
+  for (cat in names(ENRES[[test]])){
+    cat(sprintf("\n###### %s {-}\n", cat))
+    
+    try({print(dotplot(ENRES[[test]][[cat]], showCategory=20)); cat("\n")})
+  }
+}
+```
+
+
+#### Enrichment map  {.tabset .tabset-pills}
+
+Enrichment map for `cluster profiler` results for contrast A549_SC2V_vs_IAV.
+
+```{r clusterprofiler_enrichmentmap_A549_SC2V_vs_IAV_ID4, results="asis"}
+library(enrichplot)
+
+for (test in names(ENRES)){
+  cat(sprintf("\n##### %s {- .tabset}\n", test))
+  for (cat in names(ENRES[[test]])){
+    cat(sprintf("\n###### %s {-}\n", cat))
+    
+    try({print(emapplot(ENRES[[test]][[cat]])); cat("\n")})
+  }
+}
+```
+
+
+#### UpSet plot  {.tabset .tabset-pills}
+
+UpSet plot for `cluster profiler` results for contrast A549_SC2V_vs_IAV.
+
+```{r clusterprofiler_upsetplot_A549_SC2V_vs_IAV_ID4, results="asis"}
+library(enrichplot)
+
+for (test in names(ENRES)){
+  cat(sprintf("\n##### %s {- .tabset}\n", test))
+  for (cat in names(ENRES[[test]])){
+    cat(sprintf("\n###### %s {-}\n", cat))
+    
+    try({print(upsetplot(ENRES[[test]][[cat]])); cat("\n")})
+  }
+}
+```
+
+## A549_SC2V_vs_RSV
+
+<!---
+initialize contrast variables
+-->
+
+```{r init_A549_SC2V_vs_RSV_ID5, include=FALSE}
+RES         <- readRDS("DE/A549_SC2V_vs_RSV_ID5/contrast/out/contrast.A549_SC2V_vs_RSV_ID5.rds")
+CONTRAST_ID <- "A549_SC2V_vs_RSV_ID5"
+```
+
+### MA plot 
+
+A MA plot of the contrast A549_SC2V_vs_RSV.
+
+```{r MA_A549_SC2V_vs_RSV_ID5}
+#----- load results
+res <- readRDS(subset(file_tab, step=="contrast" & extension=="rds" & contrast==CONTRAST_ID)$filename)
+
+#----- MA plot
+plotMA(res, ylim=c(-2,2))
+```
+
+
+### Results table 
+
+An interactive data table of the contrast results for A549_SC2V_vs_RSV.
+
+```{r table_A549_SC2V_vs_RSV_ID5}
+#----- import packages
+library(DT)
+library(magrittr)
+
+#----- load results
+res <- readRDS("DE/A549_SC2V_vs_RSV_ID5/contrast/out/contrast.A549_SC2V_vs_RSV_ID5.rds")
+results_table <- as.data.frame(res); ids <- is.element(colnames(results_table), c("entrez", "symbol"))
+results_table <- results_table[,c(which(ids), which(!ids))]
+
+#----- filter results
+results_table <- subset(results_table, padj < config$report$snippet_parameters$contrast$filter_results$qval)
+
+#----- interactive table
+datatable(results_table, extensions=c('Buttons','FixedColumns'), escape=FALSE,
+          options = list(scrollX=TRUE, fixedColumns=list(leftColumns=3), dom='Bfrtip', buttons='csv')) %>%
+  formatRound('baseMean', 3) %>%
+  formatRound('log2FoldChange', 3) %>%
+  formatRound('lfcSE', 3) %>%
+  formatRound('stat', 3) %>%
+  formatRound('pvalue', 4) %>%
+  formatRound('padj', 4)
+```
+
+
+```{r tmod_conf_A549_SC2V_vs_RSV_ID5}
+#----- import packages
+require(tidyverse)
+require(pander)
+require(DT)
+
+# ---- get wildcards 
+c_id       <- "A549_SC2V_vs_RSV_ID5"
+c_name     <- "A549_SC2V_vs_RSV"
+tmod_res.f <- "DE/A549_SC2V_vs_RSV_ID5/tmod/out/tmod.A549_SC2V_vs_RSV_ID5.rds"
+
+# load tmod functions
+r.path <- "/fast/work/users/jweiner_m/Projects/Software/sea-snap/report/R_common"
+script_f <- file.path(r.path, "..", "..", "external_scripts", "tmod_functions.R")
+source(script_f)
+
+snip.par     <- config$report$snippet_parameters$tmod_contrast
+res_auc_thr  <- snip.par$res_auc_thr
+res_pval_thr <- snip.par$res_pval_thr
+if(is.null(res_auc_thr)) res_auc_thr <- .65
+if(is.null(res_pval_thr)) res_pval_thr <- .01
+
+## No wildcards beyond this point except in chunk names
+```
+
+```{r tmod_contrast_A549_SC2V_vs_RSV_ID5}
+# load results table
+message(sprintf("tmod contrast %s, reading file %s", c_id, tmod_res.f))
+tmod_res <- readRDS(tmod_res.f)
+```
+
+
+### `tmod` enrichment analysis for `r c_name`
+
+
+**Table.** Summary of the results for contrast `r c_name` shows number of
+significant gene sets at various significance levels and for AUC > 0.65.
+
+```{r, results="asis"}
+pval.thr <- c(.01, .001, 1e-4, 1e-6)
+
+tmp <- imap_dfr(tmod_res, ~ {
+  .r <- .x
+  .rn <- .y
+  ret <- t(sapply(.r, function(.s) {
+    sapply(pval.thr, function(.pt) {
+      sum(.s$adj.P.Val < .pt & .s$AUC > 0.65, na.rm=TRUE)
+    })
+  }))
+  data.frame(DB=.y, ret)
+})
+
+colnames(tmp) <- c("DB", pval.thr)
+pandoc.table(tmp, row.names=FALSE, split.tables=Inf)
+```
+
+
+**Table.** Results of the tmod enrichment analysis for contrast `r c_name`.
+Only significantly enriched gene sets are shown (FDR < `r res_pval_thr`, 
+AUC > `r res_auc_thr`). **AUC**, area under curve; **p.value**, p-value
+from enrichment test; **FDR**, p-value corrected for multiple testing with
+Benjamini-Hochberg method.
+
+```{r, tmod_contrast_result_listA549_SC2V_vs_RSV_ID5, results="asis"}
+## each datatable must be knitted in a separate chunk, otherwise it doesn't
+## work
+resU  <- unlist(tmod_res, recursive=FALSE)
+mytab <- data.frame(ID=1:3, foo=letters[1:3])
+
+template <- "
+\n```{r}
+datatable(mytab, extensions=c('Buttons','FixedColumns'), rownames=FALSE, escape=FALSE,
+        options = list(scrollX=TRUE, fixedColumns=list(leftColumns=1), dom='Bfrtip', buttons=c('excel', 'csv'))) %>%
+        formatSignif('p.value', 2) %>%
+        formatSignif('FDR', 2) %>%
+        formatSignif('AUC', 2)
+
+\n```
+
+"
+
+cat("\n##### {- .tabset}\n")
+
+for(db in names(resU)) {
+  mytab <- tmod_filter_format_res(resU[[db]], pval.thr=res_pval_thr, AUC.thr=res_auc_thr)
+  cat(sprintf("\n###### %s {-}\n", db))
+  if(!is.null(resU[[db]]) && nrow(mytab) > 0) {
+    out <- knitr::knit_child(text=template, quiet=TRUE)
+    cat(out)
+  } else {
+    cat("**No results at the specified thresholds**\n")
+  }
+
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+### cluster profiler results 
+
+```{r clusterprofilersetup_A549_SC2V_vs_RSV_ID5}
+require(magrittr)
+
+#----- load cluster profiler results
+ENRES <- readRDS(subset(file_tab, step=="cluster_profiler" & extension=="rds" & contrast=="A549_SC2V_vs_RSV_ID5")$filename)
+
+PLOTS_DIR  <- file.path(PLOTS_BASE_DIR, "cluster_profiler")
+dir.create(PLOTS_DIR, recursive=TRUE, showWarnings=FALSE, mode="0750")
+```
+
+
+#### Dot plot  {.tabset .tabset-pills}
+
+Dot plot for `cluster profiler` results for contrast A549_SC2V_vs_RSV.
+
+```{r clusterprofiler_dotplot_A549_SC2V_vs_RSV_ID5, results="asis"}
+library(enrichplot)
+
+for (test in names(ENRES)){
+  cat(sprintf("\n##### %s {- .tabset}\n", test))
+  for (cat in names(ENRES[[test]])){
+    cat(sprintf("\n###### %s {-}\n", cat))
+    
+    try({print(dotplot(ENRES[[test]][[cat]], showCategory=20)); cat("\n")})
+  }
+}
+```
+
+
+#### Enrichment map  {.tabset .tabset-pills}
+
+Enrichment map for `cluster profiler` results for contrast A549_SC2V_vs_RSV.
+
+```{r clusterprofiler_enrichmentmap_A549_SC2V_vs_RSV_ID5, results="asis"}
+library(enrichplot)
+
+for (test in names(ENRES)){
+  cat(sprintf("\n##### %s {- .tabset}\n", test))
+  for (cat in names(ENRES[[test]])){
+    cat(sprintf("\n###### %s {-}\n", cat))
+    
+    try({print(emapplot(ENRES[[test]][[cat]])); cat("\n")})
+  }
+}
+```
+
+
+#### UpSet plot  {.tabset .tabset-pills}
+
+UpSet plot for `cluster profiler` results for contrast A549_SC2V_vs_RSV.
+
+```{r clusterprofiler_upsetplot_A549_SC2V_vs_RSV_ID5, results="asis"}
+library(enrichplot)
+
+for (test in names(ENRES)){
+  cat(sprintf("\n##### %s {- .tabset}\n", test))
+  for (cat in names(ENRES[[test]])){
+    cat(sprintf("\n###### %s {-}\n", cat))
+    
+    try({print(upsetplot(ENRES[[test]][[cat]])); cat("\n")})
+  }
+}
+```
+
+
+
+# Functional analysis 
+
+
+
+<!--
+This is the snippet for summary of tmod results.
+January Weiner
+-->
+
+## Gene set enrichment analysis with tmod 
+
+
+### Overview
+
+
+```{r tmod_configuration}
+## load the necessary libraries and objects required to run this snippet
+require(tidyverse)
+require(pander)
+require(tmod)
+require(orthomapper)
+require(glue)
+
+## get the file names from file_tab
+#tmod.res.f <- subset(file_tab, step=="tmod_summary" & extension == "rds")$filename
+tmod.dbs.f <- subset(file_tab, step=="tmod_dbs" & extension == "rds")$filename
+map.f      <- subset(file_tab, step == "tmod_dbs" & extension == "mapping.rds")$filename
+annot.f    <- subset(file_tab, step == "annotation" & extension == "rds")$filename
+
+#tmod.res  <- readRDS(tmod.res.f)
+tmod.dbs  <- readRDS(tmod.dbs.f)
+conf.snip <- config$report$snippet_parameters$tmod
+annot     <- readRDS(annot.f)
+
+tmod.mapping <- readRDS(map.f)
+
+# load tmod functions
+r.path <- "/fast/work/users/jweiner_m/Projects/Software/sea-snap/report/R_common"
+script_f <- file.path(r.path, "..", "..", "external_scripts", "tmod_functions.R")
+source(script_f)
+```
+
+
+```{r tmod_summary}
+## create tmod_res with all the results
+contr <- sapply(config$contrasts$contrast_list, `[[`, "title")
+names(contr) <- sapply(config$contrasts$contrast_list, `[[`, "ID")
+
+res.f <- subset(file_tab, step == "tmod" & extension == "rds")$filename
+cnames <- subset(file_tab, step == "tmod" & extension == "rds")$contrast
+
+all_res <- lapply(res.f, readRDS)
+names(all_res) <- cnames
+
+contr <- contr[ names(contr) %in% cnames ]
+
+## put the contrasts in the same order they are in the config file
+all_res <- all_res[names(contr)]
+
+res <- lapply(names(tmod.dbs), function(n) lapply(all_res, `[[`, n))
+names(res) <- names(tmod.dbs)
+
+tmod.res <- list(results=res, contrasts_names=contr)
+rm(res)
+
+
+
+```
+
+
+
+```{r tmod_genelists}
+message(glue("Loading tmod gene lists"))
+
+tmp <- subset(file_tab, step=="tmod" & extension == "gl.rds")
+genelists <- lapply(tmp$filename, readRDS)
+names(genelists) <- tmp$contrast
+
+dbs <- unique(unlist(lapply(genelists, names)))
+
+## genelists holds the ordered lists of genes corresponding to contrasts and 
+## enrichment methods. Each element corresponds to the database and is itself a list 
+## with one element per contrast.
+genelists <- lapply(dbs, function(x) {
+  x <- lapply(genelists, `[[`, x)
+  x[names(contr)]
+})
+names(genelists) <- dbs
+```
+
+
+```{r deseq2_results}
+## Load the deseq2 results. We need them to visualize the data.
+message("Loading deseq2 results")
+tmp <- subset(file_tab, step=="contrasts_full" & extension == "rds")
+tmp2 <- lapply(tmp$filename, readRDS)
+names(tmp2) <- tmp$contrast
+
+.gl <- rownames(tmp2[[1]])
+tmp2 <- lapply(tmp2, function(x) x[ .gl, ])
+
+lfcs <- sapply(tmp2, `[[`, "log2FoldChange")
+pvals <- sapply(tmp2, `[[`, "padj")
+pvals[ is.na(pvals) ] <- 1
+lfcs[ is.na(lfcs) ] <- 0
+rownames(lfcs)  <- .gl
+rownames(pvals) <- .gl
+```
+
+**Table.** Overview of the databases for which gene set enrichment using
+tmod was performed.
+
+```{r tmod_dbs_overview_table}
+dbstat <- function(db) {
+  n <- nrow(db$dbobj$MODULES)
+  data.frame(ID=db$name, Name=db$title, Description=db$description, TaxonID=db$taxonID, N=n)
+}
+
+tab <- lapply(tmod.dbs, dbstat)
+tab <- Reduce(rbind, tab)
+pander(tab, row.names=FALSE, split.tables=Inf)
+```
+
+
+```{r tmod_db_output_templates}
+## we create templates as functions only to indicate which variables 
+## the templates need
+## Note: the `\n` character precedes the ```, because otherwise 
+## knitr gets confused!
+
+template_summary <- function(db_n, db, resU) {
+"
+
+## tmod enrichment analysis results for database `r db$title`.
+
+### Summary
+
+**Database ID:** `r db$name`.
+
+**Description:** `r db$description`.
+
+**Tab. Summary of the results.** Numbers show the number of enrichments
+significant at a given threshold for the given contrast and test type.
+
+\n```{r, results='asis'}
+pval.thr <- c(.05, .01, 1e-3, 1e-5)
+tab <- imap_dfr(resU, ~ {
+  .res   <- .x
+  .cname <- .y
+
+  map_int(pval.thr, ~ sum(.res$adj.P.Val < .x, na.rm=TRUE))
+})
+
+tab <- data.frame(names(resU), t(tab))
+colnames(tab) <- c('Contrast', pval.thr)
+
+pander(tab, row.names=FALSE, split.tables=Inf)
+\n```
+
+"
+}
+
+template_figure <- function(db_n, db, res, resU, lfcs, pvals, tmod.mapping, res_selection) {
+"
+
+### Figure
+
+\n```{r}
+## here, we run tmodDecideTests to figure out which genes belonging to a module go up, which go down
+
+## translate the names of the DESeq2 results to tmod database IDs
+gl <- rownames(lfcs)
+tmod.mapname <- tmod.mapping$dbs[db_n]
+gl.mapped <- tmod.mapping$maps[[tmod.mapname]][gl]
+
+## run tmodDecideTests to get numbers of significantly regulated genes 
+pie.main <- tmodDecideTests(gl.mapped, lfcs, pvals, mset=db$dbobj[ res_selection$sel_ids ] )
+
+## Since we can have multiple tests per database, but only one 'pie' per
+## contrast, we need to recreate the structure of tmod.res
+
+pies <- imap(res, ~ {
+  res.ctr <- .x
+  ctr_name <- .y
+ 
+  map(res.ctr, ~ {
+    pie.main[[ctr_name]]
+  })
+})
+
+## object analogous to resU, it will have the same names
+piesU <- unlist(pies, recursive=FALSE)
+\n```
+
+**Fig.** Panel plot showing results for the database `r db$name`.
+
+\n```{r}
+resU2 <- lapply(resU, function(x) x[ x$ID %in% res_selection$sel_ids,, drop=FALSE ])
+resU2S <- tmodSummary(resU2)
+rowlabs <- tmod_labels(resU2S$ID, resU2S$Title, max.length=35, nlines=2)
+#message(sprintf('Num of results to show: %d', nrow(resU2S)))
+#pander(resU2S)
+\n```
+
+
+\n```{r, fig.width=12,fig.height=4 + ceiling(nrow(resU2S)/3)}
+tmodPanelPlot(resU2, filter.rows.pval=conf.snip$fig_qval_max, 
+                     filter.rows.auc=conf.snip$fig_auc_min, 
+										 pie=piesU, grid='b', row.labels=rowlabs)
+\n```
+"
+}
+
+template_evidence_plots <- function(db_n, db, ids, gl) {
+"
+
+\n```{r}
+n <- length(ids)
+## collapse the top two levels of genelists
+glU <- unlist(gl, recursive=FALSE)
+\n```
+
+### Evidence plots
+
+Figures below show the evidence plots for the top `r n` gene sets. Each row
+corresponds to one gene set. Each column corresponds to one enrichment test
+(contrast + ordering). Each evidence plot shows the existing evidence for the
+enrichment of the given gene set in the given contrast. The curve shows
+the Receiver Operator Characteristic (ROC) curve for a given gene set. The rug
+below the figure represents the ordered list of genes. Genes belonging to a 
+given gene set are highlighted. Colors indicate whether the genes are
+positively or negatively regulated (red or blue, respectively), while color
+brightness indicates whether genes are significantly regulated (at q < 0.05).
+
+
+
+\n```{r fig.width=4*length(glU), fig.height=4*n}
+
+par(mfrow=c(n, length(glU)))
+
+## color the genes
+## names(gl) are the contrast names
+
+gids <- rownames(lfcs)
+tmod.mapname <- tmod.mapping$dbs[db_n]
+gids.mapped <- tmod.mapping$maps[[tmod.mapname]][gids]
+
+gene_colors <- lapply(names(gl), function(.gl) {
+	p <- pvals[,.gl]
+	l <- lfcs[,.gl]
+
+	cols <- ifelse(l < 0, 
+		ifelse(p < .05, 'blue', '#660000'),
+		ifelse(p < .05, 'red', '#000066'))
+	names(cols) <- gids.mapped
+	cols
+})
+names(gene_colors) <- names(gl)
+
+mlabs <- tmod_labels(ids, db$dbobj$MODULES[ids, 'Title' ], max.length=35, nlines=2)
+
+gsymbols <- NULL
+if('SYMBOL' %in% colnames(annot)) {
+	gsymbols <- annot$SYMBOL
+	names(gsymbols) <- annot$PrimaryID
+	gsymbols[is.na(gsymbols)] <- ''
+}
+	
+
+for(id in ids) {
+  for(.c in names(gl)) {
+		for(.s in names(gl[[.c]])) {
+			glabs <- gl[[.c]][[.s]] # gene labels
+			glabs <- glabs[ glabs %in% db$dbobj$MODULES2GENES[[id]] ]
+			if(!is.null(gsymbols)) {
+				gene_labs <- gsymbols[ names(glabs) ]
+			} else {
+				gene_labs <- glabs
+			}
+			names(gene_labs) <- glabs
+
+    	evidencePlot(gl[[.c]][[.s]], 
+				m=id, 
+				mset=db$dbobj, 
+				gene.colors=gene_colors[[.c]],
+				gene.labels=gene_labs,
+				main=sprintf('%s / %s\n%s', contr[.c], .s, mlabs[id]))
+		}
+  }
+}
+
+
+\n```
+
+"
+}
+
+```
+
+```{r tmod_results,results="asis"}
+## Here, we knit the template for each database
+
+for(db_n in names(tmod.res$results)) {
+  res  <- tmod.res$results[[db_n]]
+  db <- tmod.dbs[[ db_n ]]
+  message(glue("generating plots for {db_n}"))
+
+  ## results with the "sort type" level flattened
+  ## so instead of res$contrasts_name$pval$... we have res$contrasts_name.pval$...
+  resU <- unlist(res, recursive=FALSE)
+  summary_t <- template_summary(db_n, db, resU)
+  foo <- knitr::knit_child(text=summary_t, quiet=TRUE)
+  cat(foo)
+
+  # tmod_mod_sel <- function(res, qval.thr=.01, auc.thr=.65, max.n=25, min.n=max.n, res_sum=NULL) {
+  res_selection <- tmod_mod_sel(resU, qval.thr=conf.snip$fig_qval_max, 
+                                     auc.thr=conf.snip$fig_auc_min,
+                                     max.n=conf.snip$fig_n_max,
+                                     min.n=conf.snip$fig_n_min)
+  if(!is.null(res_selection$note)) {
+    cat(paste("\n\nNo figure produced because there were", res_selection$note, "enrichment results.\n\n"))
+  } else {
+    figure_t <- template_figure(db_n, db, res, resU, lfcs, pvals, tmod.mapping, res_selection)
+    foo <- knitr::knit_child(text=figure_t, quiet=TRUE)
+    cat(foo)
+
+		n <- conf.snip$n_evid
+    .sel <- tmod_mod_sel(resU, qval.thr=conf.snip$fig_qval_max, auc.thr=conf.snip$fig_auc_min, max.n=n, min.n=n)
+    ids <- .sel$sel_ids
+		gl <- genelists[[db_n]]
+    evidence_plot_t <- template_evidence_plots(db_n, db, ids, gl)
+    foo <- knitr::knit_child(text=evidence_plot_t, quiet=TRUE)
+    cat(foo)
+  }
+}
+```
+
+
+
+
+
+
+
+<!--  common abbreviations: 
+This is the snippet for summary of cluster profiler results
+January Weiner
+
+    cps, cluster profiler summary
+    cp, cluster profiler 
+-->
+
+
+## Cluster profiler summary overview by database 
+
+
+### Overview
+
+
+
+
+```{r cps_configuration}
+require(tidyverse)
+require(pander)
+require(tmod)
+require(orthomapper)
+require(glue)
+
+if(packageVersion("tmod") < "0.43") 
+  stop("tmod version required: at least 0.43. Please install newer tmod from https://github.com/january3/tmod")
+
+# load tmod functions
+r.path <- "/fast/work/users/jweiner_m/Projects/Software/sea-snap/report/R_common"
+script_f <- file.path(r.path, "..", "..", "external_scripts", "tmod_functions.R")
+source(script_f)
+
+## config is defined in the main report template
+if(is.null(config$contrasts$contrast_list)) stop("No contrasts defined")
+
+contrasts <- sapply(config$contrasts$contrast_list, `[[`, "ID")
+```
+
+
+```{r cps_load_data}
+## load cluster profiler data
+cp_data <- lapply(contrasts, function(.c) {
+  fn <- subset(file_tab, contrast == .c & step == "cluster_profiler" & extension == "rds")$filename
+  unlist(readRDS(fn), recursive=FALSE)
+})
+names(cp_data) <- contrasts
+
+cps_db_names <- unique(unlist(lapply(cp_data, names)))
+
+## cp_data will now hold one element per each unique database name (e.g.
+## MSigdb.H) and each of these elements has the results of enrichment
+## analysis for each contrast for which it was run
+cp_data <- lapply(cps_db_names, function(.n) {
+  ret <- lapply(cp_data, `[[`, .n)
+  ret[!(sapply(ret, is.null))]
+})
+names(cp_data) <- cps_db_names
+```
+
+
+
+
+```{r cps_deseq2_results}
+message("Loading deseq2 results")
+tmp <- subset(file_tab, step=="contrasts_full" & extension == "rds")
+tmp2 <- lapply(tmp$filename, readRDS)
+names(tmp2) <- tmp$contrast
+
+.gl <- rownames(tmp2[[1]])
+tmp2 <- lapply(tmp2, function(x) x[ .gl, ])
+
+lfcs <- sapply(tmp2, `[[`, "log2FoldChange")
+pvals <- sapply(tmp2, `[[`, "padj")
+pvals[ is.na(pvals) ] <- 1
+lfcs[ is.na(lfcs) ] <- 0
+rownames(lfcs) <- .gl
+rownames(pvals) <- .gl
+```
+
+**Table.** Overview of the databases for which gene set enrichment using
+`cluster_profiler` was performed.
+
+```{r cps_dbs_overview_table}
+
+```
+
+
+```{r cps_db_output_templates}
+## Note: the `\n` character precedes the ```, because otherwise 
+## knitr gets confused!
+template_summary <- function(res, db_n) {
+"
+
+### `r db_n`
+
+"
+}
+
+template_figure <- function(res, resS, db_n, effect.col) {
+
+if(effect.col == "NES") { ret <-
+"
+**Fig.** Panel plot showing results for the database `r db_n`. Effect size
+is the normalized enrichment score (NES). Blue color indicates negative
+enrichment score, red color indicates positive NES. Size of the dots
+corresponds to the magnitude of NES as shown in the legend. Color intensity
+indicates p-value.
+
+\n```{r, fig.width=9,fig.height=ceiling(4 + nrow(resS) / 2)}
+labs <- tmod_labels(resS$ID, resS$Title, max.length=25, nlines=2)
+
+tmodPanelPlot(resS, min.e=-3, max.e=3, filter.rows.auc=-Inf, pie.style='dotsymm', pval.thr=.05, row.labels=labs)
+\n```
+"
+} else { ret <-
+"
+**Fig.** Panel plot showing results for the database `r db_n`. Effect size
+is the relative enrichment score (E) defined as (b/n)/(B/N), where 
+b is the number of significant genes in the given gene set, n is total
+number of genes in the given gene set, B is the total number of significant
+genes and N is the total number of genes.  Size of the dots corresponds to
+the magnitude of E as shown in the legend. Color intensity indicates
+p-value.
+
+\n```{r, fig.width=9,fig.height=ceiling(4 + nrow(resS) / 2)}
+labs <- tmod_labels(resS$ID, resS$Title, max.length=35, nlines=2)
+
+ln <- names(labs)
+labs <- sprintf('%s (%s)', labs, names(labs))
+names(labs) <- ln
+tmodPanelPlot(resS, filter.rows.auc=-Inf, pval.thr=.05, row.labels=labs, max.e=NULL, min.e=1)
+\n```
+"
+}
+
+return(ret)
+}
+
+```
+
+```{r cps_results,results="asis"}
+## Here, we knit the template for each database
+
+for(db_n in names(cp_data)) {
+  res <- lapply(cp_data[[db_n]], function(x) { x <- x@result ; x$Title <- x$Description ; x })
+  message(glue("generating plots for {db_n}"))
+ 
+  ## results with the "sort type" level flattened
+  ## so instead of res$contrasts_name$pval$... we have res$contrasts_name.pval$...
+  summary_t <- template_summary(res, db_n)
+  foo <- knitr::knit_child(text=summary_t, quiet=TRUE)
+  cat(foo)
+ 
+  if("NES" %in% colnames(res[[1]])) {
+    effect.col <- "NES"
+  } else {
+    effect.col <- "E"
+    res <- lapply(res, function(x) {
+      b <- as.numeric(gsub("/.*", "", x$GeneRatio))
+      n <- as.numeric(gsub(".*/", "", x$GeneRatio))
+      B <- as.numeric(gsub("/.*", "", x$BgRatio))
+      N <- as.numeric(gsub(".*/", "", x$BgRatio))
+      x$E <- ((b/n)/(B/N))
+      x
+    })
+  }
+    
+  res_selection <- tmod_mod_sel(res, qval.thr=0.05, auc.thr=0, effect.col=effect.col, pval.col='p.adjust')
+  res <- lapply(res, function(x) x[ x$ID %in% res_selection$sel_ids, , drop=FALSE ])
+  resS <- tmodSummary(res, effect.col=effect.col, pval.col='p.adjust')
+
+  if(!is.null(res_selection$note)) {
+    cat(paste("\n\nNo figure produced because there were", res_selection$note, "enrichment results.\n\n"))
+  } else {
+    figure_t <- template_figure(res, resS, db_n, effect.col)
+    foo <- knitr::knit_child(text=figure_t, quiet=TRUE)
+    cat(foo)
+  }
+}
+```
+
+
+
+
+
+
+
+
+# Session Info
+
+```{r sessionInfo, message=TRUE}
+sessionInfo()
+```
+
