@@ -25,7 +25,7 @@ January Weiner <january.weiner@bihealth.de>
 
 ## Course files
 
-Course repository: https://github.com/bihealth/Rcrashcourse
+Course repository: https://github.com/bihealth/Radvanced
 
 To view the lectures, download the HTML file and open it in a browser.
 
