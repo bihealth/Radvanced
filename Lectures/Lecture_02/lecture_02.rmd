@@ -39,6 +39,7 @@ lapply(1:3, function(x) {
   lines(norms.d[[x]], col=pal[x], lwd=3)
 })
 
+legend("topright", paste0("SD=", 1:3), col=pal, lwd=3, bty="n")
 
 ```
 
@@ -155,11 +156,32 @@ lapply(1:3, function(x) {
 legend("topright", sprintf("Mu=%d, alpha=100", mus), col=pal, lwd=3, bty="n")
 ```
 
+## Negative binomial distribution
+
+What about different dispersions? ($\alpha$ parameter)
+
+```{r}
+alpha <- c(1, 10, 100)
+mus <- rep(100, 3)
+rnb2 <- lapply(1:3, function(x) rnbinom(1000, size=alpha[x], mu=mus[x]))
+rnb.d2 <- lapply(rnb2, density)
+
+plot(NULL, xlim=c(0, 600), ylim=c(0, .03), bty="n", 
+  xlab="", ylab="density")
+lapply(1:3, function(x) {
+  polygon(rnb.d2[[x]], col=pal.t[x], border=NA)
+  lines(rnb.d2[[x]], col=pal[x], lwd=3)
+})
+
+legend("topright", sprintf("Mu=%d, alpha=%d", mus, alpha), col=pal, lwd=3, bty="n")
+```
+
+
 
 ## A note on Bioconductor packages
 
  * Install the package `BiocManager`
- * use `Biocmanager::install()` to install Bioconductor packages
+ * use `BiocManager::install()` to install Bioconductor packages
  * Why Bioconductor packages, and not CRAN?
 
 
@@ -228,11 +250,22 @@ ds <- ds[ keep, ]
 ```
 
 ## The actual analysis
+
 ```{r echo=TRUE,results="markdown"}
 ds <- DESeq(ds)
 resultsNames(ds)
 ```
 
+## Dispersion plots
+
+The plot shows a first estimate of dispersion ($\alpha$ parameter) for each
+gene (black dots), then a fitted model for all genes (red line), and then
+a posterior estimation (called "shrinkage") of the per gene dispersion
+using bayesian statistics (blue dots). The plot below is typical.
+
+```{r}
+plotDispEsts(ds, bty="n")
+```
 
 ## Getting the actual results
 
