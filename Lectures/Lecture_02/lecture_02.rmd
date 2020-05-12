@@ -1,0 +1,257 @@
+---
+title: "CUBI advanced R bioinformatics course / 02"
+subtitle: "Comparing expression with DESeq2"
+author: ""
+date: "`r Sys.Date()`"
+output:
+  ioslides_presentation: 
+    widescreen: true
+    smaller: true
+toc: no
+---
+
+```{r,echo=FALSE}
+## Set default options for the knitr RMD processing
+knitr::opts_chunk$set(echo=FALSE,warning=FALSE,message=FALSE,fig.width=5,fig.height=5,cache=TRUE,autodep=TRUE, results="hide")
+```
+
+```{r libraries,cache=FALSE}
+```
+
+
+# Distributions
+
+## There are many types of distributions
+
+## Normal distribution
+
+```{r}
+library(RColorBrewer)
+pal <- brewer.pal("Set2", n=8)
+pal.t <- paste0(pal, '33')
+norms <- lapply(1:3, function(x) rnorm(1000, sd=x))
+norms.d <- lapply(norms, density)
+
+plot(NULL, xlim=c(-10, 10), ylim=c(0, .5), bty="n", 
+  xlab="", ylab="density")
+lapply(1:3, function(x) {
+  polygon(norms.d[[x]], col=pal.t[x], border=NA)
+  lines(norms.d[[x]], col=pal[x], lwd=3)
+})
+
+
+```
+
+## Binomial distribution
+
+```{r}
+binom1 <- rbinom(1000, 10, .5)
+binom2 <- rbinom(1000, 10, .3)
+binom3 <- rbinom(1000, 10, .1)
+
+plot(density(binom1), col=pal[1], ylim=c(0, .7), lwd=3,
+  xlab="Number of heads in 10 throws",
+  main="Binomial distribution", bty="n")
+polygon(density(binom1), col=pal.t[1], border=NA)
+polygon(density(binom2), col=pal.t[2], border=NA)
+lines(density(binom2), col=pal[2], lwd=3)
+polygon(density(binom3), col=pal.t[3], border=NA)
+lines(density(binom3), col=pal[3], lwd=3)
+
+legend("topright", c("p = 0.05", "p = 0.03", "p = 0.01"),
+  col=pal, lwd=3, bty="n")
+```
+
+
+## Binomial distribution, 2
+
+```{r}
+hist(binom3, col=pal.t[3], freq=FALSE,  border=pal[3], ylim=c(0, .8), xlim=c(0, 10), breaks=0:10)
+hist(binom2, col=pal.t[2], freq=FALSE,  border=pal[2], add=TRUE,
+breaks=0:10)
+hist(binom1, col=pal.t[1], freq=FALSE,  border=pal[1], add=TRUE,
+breaks=0:10)
+
+plot(density(binom1), col=pal[1], ylim=c(0, .7), lwd=3,
+  xlab="Number of heads in 10 throws",
+  main="Binomial distribution", bty="n")
+polygon(density(binom1), col=pal.t[1], border=NA)
+polygon(density(binom2), col=pal.t[2], border=NA)
+lines(density(binom2), col=pal[2], lwd=3)
+polygon(density(binom3), col=pal.t[3], border=NA)
+lines(density(binom3), col=pal[3], lwd=3)
+
+legend("topright", c("p = 0.05", "p = 0.03", "p = 0.01"),
+  col=pal, lwd=3, bty="n")
+```
+
+
+## Demonstration
+
+R is a good tool to play with distributions and simulate data.
+
+In this example, I will show you the difference between standard deviation
+and standard error of the mean.
+
+
+## Distribution of the count data
+
+```{r}
+counts <- as.matrix(read.table("Data/covid_data/counts.tsv"))
+annot  <- read.csv("Data/covid_data/annotation.all.csv")
+covar  <- read.table("Data/covid_data/covariate_file.txt", sep="\t", header=T)
+```
+
+```{r}
+d <- density(counts[,1])
+plot(d, ylim=c(0, .0001), xlim=c(0, 10000))
+```
+
+
+## Distribution of count data
+
+Binomial: we count some items out of a certain total. With binomial
+distribution, we must know what the *total* is. But what if we only have
+the count?
+
+## Negative binomial distribution
+
+For a given N, f(N) is the number of times we need to throw a coin to get N
+successes. So, we have two parameters: N (number of successes) and p
+(probability of obtaining Head in a coin throw).
+
+```{r}
+rnb <- lapply(c(.9, .5, .3), function(x) rnbinom(1000, 100, x))
+rnb.d <- lapply(rnb, density)
+
+plot(NULL, xlim=c(0, 300), ylim=c(0, .15), bty="n", 
+  xlab="", ylab="density")
+lapply(1:3, function(x) {
+  polygon(rnb.d[[x]], col=pal.t[x], border=NA)
+  lines(rnb.d[[x]], col=pal[x], lwd=3)
+})
+
+legend("topright", paste0("p = ", c(.9, .5, .3)), col=pal, lwd=3, bty="n")
+```
+
+## Negative binomial distribution
+
+Alternatively, we can use a definition where the parameters are $\mu$ (mean
+result) and $\alpha$ (dispersion).
+
+```{r}
+mus <- c(10, 100, 233)
+alpha <- rep(100, 3)
+rnb2 <- lapply(1:3, function(x) rnbinom(1000, size=alpha[x], mu=mus[x]))
+rnb.d2 <- lapply(rnb2, density)
+
+plot(NULL, xlim=c(0, 300), ylim=c(0, .15), bty="n", 
+  xlab="", ylab="density")
+lapply(1:3, function(x) {
+  polygon(rnb.d2[[x]], col=pal.t[x], border=NA)
+  lines(rnb.d2[[x]], col=pal[x], lwd=3)
+})
+
+legend("topright", sprintf("Mu=%d, alpha=100", mus), col=pal, lwd=3, bty="n")
+```
+
+
+## A note on Bioconductor packages
+
+ * Install the package `BiocManager`
+ * use `Biocmanager::install()` to install Bioconductor packages
+ * Why Bioconductor packages, and not CRAN?
+
+
+## A reminder on using R formulas
+
+```{r echo=TRUE,results="markup"}
+x <- 1:10
+y <- x + rnorm(10) # add noise
+
+summary(lm(y ~ x))
+```
+
+
+## Formulas can describe everything
+
+
+In `y  ~ x`, `x` does not need to be a continuous variable.
+If `x` is a categorical variable, we run an ANOVA (in the simplest case
+with two groups, a t.test).
+
+We can combine different variables (of different types!) in our model.
+
+We can use a `0` to indicate no intercept: `y ~ 0 + x`. 
+
+
+## ANOVA
+
+```{r echo=TRUE,results="markup"}
+x <- factor(rep(c("A", "B"), each=5))
+y <- rep(c(1,3), each=5) + rnorm(10)
+anova(lm(y ~ x))
+```
+
+## Using DESeq2
+
+```{r echo=TRUE}
+library(DESeq2)
+ds <- DESeqDataSetFromMatrix(countData=counts, 
+  colData=covar, design=~ 0 + group)
+```
+
+## Using the design formula
+
+ * In simple cases, it is sufficient to use `~ group` (e.g. when you have
+   exactly two groups)
+ * In other cases, use `~ 0 + group` (+ other terms if necessary)
+ * Danger ahead! There be lions!
+
+
+## Pre-filtering data
+
+```{r echo=TRUE,results="markdown"}
+## counts(ds) returns the raw counts
+rs <- rowSums(counts(ds))
+keep <- rs > 10
+
+## or we can use a slightly more elaborate approach
+## counts per million
+cpm <- counts(ds) / rep(colSums(counts(ds)), each=nrow(counts(ds))) * 1e6
+
+## take these genes where at least 3 samples have counts higher than 10
+keep2 <- rowSums(cpm > 5) > 3
+table(keep, keep2)
+
+ds <- ds[ keep, ]
+```
+
+## The actual analysis
+```{r echo=TRUE,results="markdown"}
+ds <- DESeq(ds)
+resultsNames(ds)
+```
+
+
+## Getting the actual results
+
+```{r echo=TRUE,results="markdown"}
+res <- results(ds, contrast=c("group", "A549.RSV", "A549.mock"))
+```
+
+## Understanding contrasts (demo)
+
+ groups A, B, C and D:
+
+ * $A - B$ group A vs group B, group A in the nominator
+ * $(A - B) + (C - D)$ summed effects
+ * $(A - B) - (C - D)$ interaction
+
+## Contrast specification in DESeq2
+
+ 1. Nominator vs denominator (character vector with three elements)
+ 2. list of two vectors (all groups in nominator vs all groups in
+    denominator)
+ 3. Numeric vector
+
