@@ -210,12 +210,69 @@ We can use a `0` to indicate no intercept: `y ~ 0 + x`.
 ## ANOVA
 
 ```{r echo=TRUE,results="markup"}
+set.seed(123)
 x <- factor(rep(c("A", "B"), each=5))
-y <- rep(c(1,3), each=5) + rnorm(10)
+y <- rep(c(4, 7), each=5) + rnorm(10)
 anova(lm(y ~ x))
+
+## almost identical p-value to t-test
+t.test(y[1:5], y[6:10])
 ```
 
+
+## ANOVA
+
+Let us take a look at the summary of the linear model (not the ANOVA table
+as previously).
+
+```{r echo=TRUE,results="markup"}
+summary(lm(y ~ x))
+```
+
+## ANOVA
+
+The estimate for the Intercept is the average for the first group, while
+the estimate for the group B (`xB`) is the *difference* of the average in
+group B compared to group A:
+
+```{r echo=TRUE,results="markup"}
+mean(y[1:5])
+mean(y[6:10])
+mean(y[6:10]) - mean(y[1:5])
+```
+
+## ANOVA
+
+Note that the Intercept is significant, but that only means that it is
+significantly different from 0, which is not really interesting.
+
+```{r echo=TRUE,results="markup"}
+summary(lm(y ~ x))
+```
+
+
+## ANOVA 
+
+If we were to force the intercept to 0, we would be comparing the group
+averages with 0. The estimates would be the group averages and the p-values
+would mean that the groups are significantly larger than 0. We would not
+get a useful comparison directly:
+
+```{r echo=TRUE,results="markup"}
+summary(lm(y ~ 0 + x))
+```
+
+## ANOVA
+
+`y ~ 0 + x`
+
+This model *can* be used for comparing the groups by means of contrast. We
+will not investigate here how to do it in basic R, however, we will learn
+about the contrasts in DESeq2 later on.
+
 ## Using DESeq2
+
+First, we need to load the data into DESeq2:
 
 ```{r echo=TRUE}
 library(DESeq2)
@@ -225,6 +282,8 @@ ds <- DESeqDataSetFromMatrix(countData=counts,
 
 ## Using the design formula
 
+We will investigate this in more depth a little further
+
  * In simple cases, it is sufficient to use `~ group` (e.g. when you have
    exactly two groups)
  * In other cases, use `~ 0 + group` (+ other terms if necessary)
@@ -233,7 +292,10 @@ ds <- DESeqDataSetFromMatrix(countData=counts,
 
 ## Pre-filtering data
 
-```{r echo=TRUE,results="markdown"}
+We can remove "boring" genes (with very low counts), which will increase
+our statistical power later on (not running the code below).
+
+```{r echo=TRUE,results="markdown",eval=FALSE}
 ## counts(ds) returns the raw counts
 rs <- rowSums(counts(ds))
 keep <- rs > 10
@@ -251,6 +313,9 @@ ds <- ds[ keep, ]
 
 ## The actual analysis
 
+The `DESeq` function makes the actual calculation. `resultsNames` shows
+which coefficients have been estimated based on the data and the design formula.
+
 ```{r echo=TRUE,results="markdown"}
 ds <- DESeq(ds)
 resultsNames(ds)
@@ -258,19 +323,27 @@ resultsNames(ds)
 
 ## Dispersion plots
 
-The plot shows a first estimate of dispersion ($\alpha$ parameter) for each
-gene (black dots), then a fitted model for all genes (red line), and then
-a posterior estimation (called "shrinkage") of the per gene dispersion
-using bayesian statistics (blue dots). The plot below is typical.
+<div class="columns-2">
 
 ```{r}
 plotDispEsts(ds, bty="n")
 ```
 
+The plot shows a first estimate of dispersion ($\alpha$ parameter) for each
+gene (black dots), then a fitted model for all genes (red line), and then
+a posterior estimation (called "shrinkage") of the per gene dispersion
+using bayesian statistics (blue dots). The plot below is typical.
+
+</div>
+
 ## Getting the actual results
+
+`results` pulls the result for the comparison defined by contrasts or by
+name (we will come back to that later).
 
 ```{r echo=TRUE,results="markdown"}
 res <- results(ds, contrast=c("group", "A549.RSV", "A549.mock"))
+head(res[ order(res$pvalue), ])
 ```
 
 ## Understanding contrasts (demo)
@@ -283,8 +356,118 @@ res <- results(ds, contrast=c("group", "A549.RSV", "A549.mock"))
 
 ## Contrast specification in DESeq2
 
- 1. Nominator vs denominator (character vector with three elements)
+ 1. Nominator vs denominator (character vector with three elements), which
+    is basically $A - B$;
  2. list of two vectors (all groups in nominator vs all groups in
-    denominator)
- 3. Numeric vector
+    denominator);
+ 3. numeric vector.
+
+## Simple case: two groups
+
+There are two options to proceed
+
+ * Fit with an intercept (omit the `0` in formula) and use the direct
+   comparison (the `name` option to `results()`)
+ * Fit without an intercept (`~ 0 + group`) and define a contrast (the
+   `contrast` option to `results()`)
+
+## Simple case: two groups
+
+Fit with an intercept. We are estimating two parameters: the average of the
+first group (the intercept) to 
+which all the remaining are compared, and the relative differences between
+other groups and the first group. This gives us a direct comparison between
+the two groups.
+
+```{r echo=TRUE,results="markup"}
+nhbe <- counts[, 1:6]
+nhbe.cov <- covar[1:6, ]
+ds.nhbe <- DESeqDataSetFromMatrix(nhbe, nhbe.cov, ~ group)
+ds.nhbe <- DESeq(ds.nhbe)
+resultsNames(ds.nhbe)
+res1 <- results(ds.nhbe, name="group_NHBE.SC2V_vs_NHBE.mock")
+```
+
+## Simple case: two groups
+
+Fit without an intercept. Here, we have averages for each group, which are
+by itself meaningless, as they show us only which genes are significantly
+larger than 0. Thus, we need to define the contrasts.
+
+```{r echo=TRUE,results="markup"}
+ds.nhbe <- DESeqDataSetFromMatrix(nhbe, nhbe.cov, ~ 0 + group)
+ds.nhbe <- DESeq(ds.nhbe)
+resultsNames(ds.nhbe)
+res2 <- results(ds.nhbe, contrast=c("group", "NHBE.SC2V", "NHBE.mock"))
+```
+
+## Simple case: two groups
+
+Alternatively, we can define contrast with a numeric vector. The vector
+must have the same length as the output of `resultsNames`. Each
+coefficient returned by `resultsNames` will be multiplied by the respective
+value from the vector, so specifying `c(-1, 1)` is equivalent to the
+contrast `NHBE.SC2V-NHBE.mock`. Contrast value of `0` means that the given
+coefficient will not be taken into account *at all*!
+
+```{r echo=TRUE,results="markup"}
+
+resultsNames(ds.nhbe)
+res3 <- results(ds.nhbe, contrast=c(-1, 1))
+identical(as.data.frame(res2), as.data.frame(res3))
+```
+
+
+## Simple case: two groups
+
+In the latter case, we first fit the group averages (instead of an
+intercept and a relative difference between two groups) and then define a
+*contrast* that specifies the difference between the groups. Are the
+results identical?
+
+```{r fig.width=8,fig.height=4}
+par(mfrow=c(1,2), bty="n", pch=19, col="#33333333")
+plot(res1$log2FoldChange, res2$log2FoldChange, main="log2FoldChange")
+abline(0, 1)
+plot(res1$pvalue, res2$pvalue, main="P-Value", log="xy")
+abline(0, 1)
+```
+
+
+## Complex case again
+
+So what happens if we use the same approach with intercept for the large data set?
+
+```{r echo=TRUE,results="markup"}
+
+## we can change the design on the fly
+design(ds) <- ~ group
+ds <- DESeq(ds)
+resultsNames(ds)
+res4 <- results(ds, contrast=c(rep(0, 6), -1, 1))
+```
+
+We have the direct comparisons, but unfortunately they are always relative
+to the same group, and we are not necessarily interested in that (why
+compare NHBE Sars-Cov-2 to A549 Influenza?). Thus, we need to define
+contrasts anyway to get the results. We ignore the first six coefficients
+(`rep(0, 6)`) and calculate the difference between the remaining two.
+
+## Do we have the same results?
+
+We do not have *identical* results as in the smaller data set, since the dispersion estimates are
+based on a larger data set and, consequently, slightly different from the
+small data set.
+
+
+```{r fig.width=8,fig.height=4}
+par(mfrow=c(1,2), bty="n", pch=19, col="#33333333")
+plot(res1$log2FoldChange, res4$log2FoldChange, main="log2FoldChange",
+  xlab="Small data set", ylab="Large data set")
+abline(0, 1)
+plot(res1$pvalue, res4$pvalue, main="P-Value", log="xy",
+  xlab="Small data set", ylab="Large data set")
+abline(0, 1)
+```
+
 
