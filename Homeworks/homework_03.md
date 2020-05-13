@@ -1,12 +1,12 @@
 
  1. The standard deviation in a population is defined as 
 
-    <img src="https://render.githubusercontent.com/render/math?math=\sqrt{\frac{\sum_i^n(x_i-\overline{x})^2}{n}}">
+    <img src="https://render.githubusercontent.com/render/math?math=\sqrt{\frac{\sum_i=1^n(x_i-\overline{x})^2}{n}}">
 
     Or, in R, 
     `sqrt(sum((x - mean(x))^2)/length(x))`. However, in statistics we use 
 
-    <img src="https://render.githubusercontent.com/render/math?math=\sqrt{\frac{\sum_i^n(x_i-\overline{x})^2}{n - 1}}">
+    <img src="https://render.githubusercontent.com/render/math?math=\sqrt{\frac{\sum_i=1^n(x_i-\overline{x})^2}{n - 1}}">
 
     in R: `sqrt(sum((x - mean(x))^2)/(length(x)-1))` when calculating the
     *estimator* of standard deviation based on a sample. Using a simulation
