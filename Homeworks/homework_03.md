@@ -54,17 +54,23 @@
     |FFF       |1000      |500        |1000      |2000       |
     
     
-    The gene AAA changes its expression upon treatment in both types of
-    cells. The gene BBB has both an effect of cell type (it is more highly
+     * The gene AAA changes its expression upon treatment in both types of
+       cells. 
+     * The gene BBB has both an effect of cell type (it is more highly
     expressed in A549 cells) and treatment (it's expression increases
     10-fold upon treatment), but the change caused by the treatment is
-    identical in both cell types.  The gene CCC does not react to
+    identical in both cell types.  
+     * The gene CCC does not react to
     treatment and is expressed only in the A549 cells. Gene DDD reacts to
     treatment only in NHBE cells (so its change *depends* on the cell
-    type). Gene EEE changes expression in both cell types, albeit to
+    type). 
+     * Gene EEE changes expression in both cell types, albeit to
     different extent (there is a difference in differences between mock
-    and treatment). Gene FFF changes in both cell types, but in different
-    directions. **Question:** which of the genes show an interaction?
+    and treatment). 
+     * Gene FFF changes in both cell types, but in different
+    directions. 
+    
+    **Question:** which of the genes show an interaction?
 
  3. Simply by filtering the results of direct comparisons between SC2V and
     mock for A549 and NHBE cells, try to find genes that roughly follow
