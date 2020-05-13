@@ -98,6 +98,13 @@
     vector should be associated with the coefficients given by
     `resultsNames(ds)`? 
 
+    *Reminder:* if you specify the contrast with numeric vector, you need
+    to assign a number coefficient to each of the coefficient names
+    returned by `resultsNames`. So for example, if you want to calculate
+    the contrast `A - B`, and `resultsNames` returns `"C", "B", "A"`, the
+    contrast parameter should be `0, -1, 1` since we ignore C, B should be
+    subtracted (thus -1) and A should be added (thus 1).
+
  4. Inspect the obtained results for an interaction test. Plot some of the
     top genes. Do you see the interaction? Look up the gene examples you
     have selected before in the results tables. What do the associated
