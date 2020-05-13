@@ -9,14 +9,21 @@
     <img src="https://render.githubusercontent.com/render/math?math=\sqrt{\frac{\sum_{i=1}^n(x_i-\overline{x})^2}{n - 1}}">
 
     in R: `sqrt(sum((x - mean(x))^2)/(length(x)-1))` when calculating the
-    *estimator* of standard deviation based on a sample. Using a simulation
+    *estimator* of standard deviation based on a sample. 
+
+    There is a function in R called `sd`. Which of the two variants above
+    does it calculate? Can you *easily* calculate the other variant from
+    `sd`?
+    
+    
+ 2. Using a simulation
     approach, show that indeed the latter is more suitable and that as
     `length(x)` grows, the two values become closer. Here is one possible algorithm:
     
-     1. For a given N, sample the normal distribution a hundred times (with known SD as a
+     1. For a given N, sample the normal distribution a thousand times (with known SD as a
         parameter; use the `rnorm` function), each time drawing N numbers.
         
-     2. Calculate the SD with both methods for each of the hundred samples
+     2. Calculate the SD with both methods for each of the thousand samples
         and calculate the average for both estimators.
 
      2. Plot the averages of both estimators against N. Draw a horizontal
