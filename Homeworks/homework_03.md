@@ -61,7 +61,8 @@
     10-fold upon treatment), but the change caused by the treatment is
     identical in both cell types.  
      * The gene CCC does not react to
-    treatment and is expressed only in the A549 cells. Gene DDD reacts to
+    treatment and is expressed only in the A549 cells. 
+     * Gene DDD reacts to
     treatment only in NHBE cells (so its change *depends* on the cell
     type). 
      * Gene EEE changes expression in both cell types, albeit to
