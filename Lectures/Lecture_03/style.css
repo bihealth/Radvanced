@@ -61,3 +61,16 @@ slides > slide hgroup h2 {
   background: #70ACC0;
 
 }
+
+
+slides > slide.title-slide {
+  background-image: url(title_slide.png);
+  background-size: cover;
+}
+slides > slide.title-slide hgroup h2 {  
+  color: #70ACC0;
+  font-size: 40px;
+  letter-spacing: 10;
+  border-bottom: 3px none #AA1C7D ;
+}
+

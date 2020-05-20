@@ -760,8 +760,8 @@ pie <- tmodDecideTests(tmp$SYMBOL.x, lfcs, qvals, lfc.thr=1, pval.thr=0.01)
 ## tmodPanelPlot
 
 
-```{r fig.height=6,fig.width=8,echo=TRUE} 
-tmodPanelPlot(x, filter.rows.auc=.8, text.cex=.7, pie=pie)
+```{r fig.height=5,fig.width=7,echo=TRUE} 
+tmodPanelPlot(x, filter.rows.auc=.8, filter.rows.pval=1e-7, text.cex=.7, pie=pie)
 ```
 
 
