@@ -206,7 +206,8 @@ devtools::install_github("https://github.com/january3/tmod")
 |,,|tmodPLAGEtest|enrichment test on an expression matrix|
 |,,|tmodDecideTests|calculate how many genes from a given gene set are up- or down-regulated|
 |visualization|tmodPanelPlot|heatmap for multiple contrasts containing loads of information|
-|,,|evidencePlot|Detailed inspection of enrichment in a single gene set|
+|,,|evidencePlot|Detailed inspection of enrichment in a single gene set of a single module|
+|,,|upset|Detailed inspection of enrichment in a single gene set|
 |,,|tmodTagcloud|Create a cloud of enrichment terms|
 |,,|tmodPCA|combine PCA with gene set enrichments|
 |,,|showGene|combined beeswarm+boxplot|
@@ -267,15 +268,21 @@ head(res.cp)[, 1:10]
 
 ## Cluster profiler GSEA vs tmodCERNOtest
 
-
+We can compare the p-value obtained from GSEA with these from tmod:
 
 ```{r tmodvsgsea,echo=TRUE}
+## get the tmod results, but do not filter by q-value
 res.tmod.cerno.full <- tmodCERNOtest(res$SYMBOL[ order(res$pvalue) ],
   mset=htmod, qval=Inf, order.by="n")
+
+## get the GSEA results, but do not filter by q-value
+## also, increase the number of permutations
 res.cp <- GSEA(vec, TERM2GENE=h[ , c("gs_name", "human_gene_symbol") ],
-  pvalueCutoff=Inf, nPerm=1e5)
+  pvalueCutoff=Inf, nPerm=1e6)
 res.cp <- as.data.frame(res.cp)[ , -ncol(res.cp) ]
 res.cp$ID <- gsub("HALLMARK_", "", res.cp$ID)
+
+## order the cp results identically to tmod
 res.cp <- res.cp[ match(res.tmod.cerno.full$ID, res.cp$ID), ]
 ```
 
@@ -286,5 +293,322 @@ par(bty="n")
 plot(res.cp$qvalues, res.tmod.cerno.full$adj.P.Val, log="xy", xlab="cluster profiler", ylab="CERNO")
 abline(0,1)
 ```
+
+
+# Interpretation and visualization
+
+## Which genes are in a gene set?
+
+```{r echo=TRUE}
+## using directly our mapping list
+h.cgs[["INTERFERON_GAMMA_RESPONSE"]]
+
+## using a data frame
+sel <- h.df$gs_name == "HALLMARK_INTERFERON_GAMMA_RESPONSE"
+h.df$human_gene_symbol[sel]
+
+## using tmod, directly or with a function
+htmod$MODULES2GENES[["INTERFERON_GAMMA_RESPONSE"]]
+
+getModuleMembers("INTERFERON_GAMMA_RESPONSE", 
+  mset=htmod)[[1]]
+```
+
+## Inspect individual genes
+
+```{r, echo=TRUE,results="markdown",out.width="70%"}
+lcounts <- assay(rlog(ds))
+genes <- getModuleMembers("LI.M127")[[1]]
+genes
+sel.genes <- annot$SYMBOL %in% genes
+head(annot[ sel.genes, ])
+```
+
+## Inspect individual genes
+
+```{r, echo=TRUE,fig.width=9,fig.height=4.5}
+par(mar=c(8, 4, 4, 2))
+showgene(lcounts[ "ENSG00000185507",  ], 
+  covar$group)
+```
+
+## Gene expression
+
+```{r heatmap,echo=TRUE,eval=FALSE}
+library(gplots)
+library(RColorBrewer)
+pal <- colorRampPalette(colors=c("purple", "black", "cyan"))(13)
+heatmap.2(lcounts[sel.genes, ], trace="n", scale="r", 
+  labRow=annot$SYMBOL[sel.genes], dendrogram="r", 
+  labCol=covar$group, margin=c(8,5), col=pal)
+```
+
+## Gene expression
+
+```{r heatmap,fig.width=7,fig.height=5}
+```
+
+## Module eigengenes
+
+ * Select genes from a gene set
+ * Run a PCA only on this set
+
+```{r eigengene_pca,echo=TRUE}
+## for PCA, we need to remove genes with no variance
+sel <- apply(lcounts, 1, var) > 0
+pca_full <- prcomp(t(lcounts[sel, ]), scale.=TRUE)
+
+## get the genes belonging to the interferon gene set
+pca_mod <- prcomp(t(lcounts[ sel.genes, ]), scale.=TRUE)
+```
+
+## Module eigengenes
+
+```{r, fig.width=10,fig.height=5}
+par(mfrow=c(1,2))
+pca2d(pca_full, group=covar$group, legend="bottomleft")
+pca2d(pca_mod, group=covar$group, legend="bottomleft")
+```
+
+
+## Using eigengenes
+
+<div class="columns-2">
+
+```{r eigengenes,fig.width=5,fig.height=4,echo=TRUE,output.width="70%"}
+par(mar=c(8, 4, 4, 2))
+all_eig <- eigengene(lcounts, 
+  annot$SYMBOL, mset=htmod)
+showgene(all_eig[ "INTERFERON_ALPHA_RESPONSE", ], 
+  covar$group, cex=.7)
+```
+
+ * Eigengene is a kind of an "average" expression of a gene set
+ * You can use eigengenes to illustrate what is happening in a gene set as
+   a whole
+ * Eigengenes are the first components of a PCA of gene expression in a
+   gene set
+ * tmod eigengene function takes an expression matrix, the corresponding
+   gene IDs and (optionally) the tmod database with the modules
+ * the eigengene function returns a matrix with a row for each gene set in
+   the tmod database
+
+</div>
+
+
+
+
+## Let us run an enrichment test
+
+We are using tmod CERNO statistic, default tmod gene sets.
+
+```{r echo=TRUE,results="markdown"}
+res <- results(ds, contrast=c("group", "A549.RSV", "A549.mock"))
+res <- merge(annot, data.frame(res), by.x="PrimaryID", by.y=0)
+l <- res$SYMBOL[ order(res$padj) ]
+res_tmod <- tmodCERNOtest(l)
+
+head(res_tmod, 5)
+```
+
+## Are the gene sets overlapping?
+
+```{r, echo=TRUE}
+m1 <- "LI.M4.1"  # cell cycle (I)
+m2 <- "LI.M4.2"  # PLK1 signaling events
+m3 <- "LI.M22.0" # mismatch repair
+glist <- getModuleMembers(c(m1, m2, m3))
+intersect(glist[[1]], glist[[2]])
+```
+
+## Are the gene sets overlapping?
+
+```{r venndiagram,echo=TRUE,eval=FALSE}
+library(VennDiagram)
+## grid graphics is between basic R and ggplot.
+## No need to understand it.
+grid.newpage()
+venn.plot <- venn.diagram(glist, NULL,
+  fill=brewer.pal(3, "Pastel1"),
+  cex=1.5, cat.cex=1.5, 
+  lty="blank",
+  fontfamily="sans", cat.fontfamily="sans")
+grid.draw(venn.plot)
+
+```
+
+## Are the gene sets overlapping?
+
+```{r venndiagram,fig.width=6,fig.height=6}
+```
+
+## Are the gene sets overlapping?
+
+```{r}
+glist <- getModuleMembers(res_tmod$ID[c(1:3, 5:6)])
+grid.newpage()
+venn.plot <- venn.diagram(glist, NULL,
+  fill=brewer.pal(5, "Pastel1"),
+  #cex=1.5, cat.cex=1.5, 
+  lty="blank",
+  fontfamily="sans", cat.fontfamily="sans")
+grid.draw(venn.plot)
+```
+
+## Upset plots
+
+```{r fig.width=9,fig.height=4.5,echo=TRUE}
+par(mar=c(0, 0, 0, 0), cex=.7)
+upset(res_tmod$ID[1:15], min.overlap=5, group=FALSE)
+```
+
+
+## Jaccard index
+
+Show the similarity of two sets
+
+$$J(A,B) = \frac{|A \cap B|}{|A \cup B|}$$
+
+That is, the number of common elements divided by the total number of
+elements.
+
+## Jaccard index: visualization
+
+```{r jaccard,echo=TRUE,eval=FALSE}
+simmat <- modOverlaps(res_tmod$ID, stat="jaccard")
+heatmap.2(simmat, 
+  trace="n", scale="n", dendrogram="r", symm=TRUE,
+  col=brewer.pal(9, "PuBu"),
+  labRow=res_tmod$Title, margin=c(4,12), 
+  labCol="",
+  breaks=seq(0, .2, length.out=10))
+```
+
+## 
+
+```{r jaccard,fig.width=9,fig.height=6.5}
+```
+
+## Group gene sets
+
+```{r, echo=TRUE,results="markdown"}
+groups <- modGroups(res_tmod$ID, min.overlap=5)
+sapply(groups, length)
+groups <- groups[sapply(groups, length) > 1]
+```
+
+## Group gene sets
+
+```{r, echo=TRUE,results="markdown"}
+res_tmod[ res_tmod$ID %in% groups[[2]], ]
+res_tmod[ res_tmod$ID %in% groups[[3]], ]
+```
+
+## Upset plot with grouping
+
+```{r fig.width=9,fig.height=4.5,echo=TRUE}
+par(mar=c(0, 0, 0, 0), cex=.7)
+upset(res_tmod$ID[1:15], min.overlap=5, group=TRUE)
+```
+
+# Leading edge analysis
+
+## Note the hump
+
+<div class="columns-2">
+
+```{r,echo=TRUE}
+evidencePlot(l, "LI.M4.0")
+abline(v=3126, col="red")
+```
+
+ * Until a certain point, the ROC curve diverges from the diagonal
+ * Then it starts to converge again
+ * Genes to the left of this point ("leading edge") are driving the
+   enrichment
+
+</div>
+
+## Note the hump
+
+<div class="columns-2">
+
+```{r,echo=TRUE}
+evidencePlot(l, "LI.M4.0", style="gsea")
+abline(v=3126, col="red")
+```
+
+ * Until a certain point, the ROC curve diverges from the diagonal
+ * Then it starts to converge again
+ * Genes to the left of this point ("leading edge") are driving the
+   enrichment
+
+</div>
+
+
+## GSEA-style ROC curve
+
+The values on that second curve are the difference between the proportion
+of genes in the gene set to the left of a given point and the proportion of
+genes *not* in the gene set to the left of this point.
+
+$$f(i) = \frac{b_i}{B} - \frac{i - b_i}{N - B}$$
+
+Where
+
+ * $i$ – position in the gene list
+ * $b_i$ – number of genes in the gene set on positions $1\cdots i$
+ * $B$ – total number of genes in the gene set 
+ * $N$ – total number of genes
+
+
+## Getting the Leading Edge genes
+
+```{r lea,results="markdown",echo=TRUE}
+lea <- tmodLEA(l, res_tmod$ID[1:25])
+head(tmodLEASummary(lea))
+lea[["LI.M75"]]
+```
+
+
+## Visualization
+
+Since `lea` object is just a list of gene sets, we can use all the
+mentioned methods to visualize it.
+
+## Jaccard index 
+
+
+Note: `modOverlaps` accepts a list of gene sets as an input.
+
+```{r lea_jacard,eval=FALSE,echo=TRUE}
+
+simmat <- modOverlaps(lea, stat="jaccard")
+heatmap.2(simmat, 
+  trace="n", scale="n", dendrogram="r", symm=TRUE,
+  col=brewer.pal(9, "PuBu"),
+  labRow=res_tmod$Title, margin=c(4,12), 
+  labCol="",
+  breaks=seq(0, .2, length.out=10))
+```
+
+
+## Jaccard index 
+
+```{r lea_jacard,echo=FALSE,eval=TRUE,fig.width=9,fig.height=4.5}
+```
+
+</div>
+
+
+## Upset plot
+
+```{r fig.width=9,fig.height=4.5,echo=TRUE}
+par(mar=c(0, 0, 0, 0), cex=.7)
+upset(lea, min.overlap=5, group=TRUE, labels=res_tmod$Title[1:25])
+```
+
+
+
 
 
