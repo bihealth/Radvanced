@@ -1,0 +1,969 @@
+---
+title: "CUBI advanced R bioinformatics course / 02"
+subtitle: "Tidyverse and ggplot"
+author: "January Weiner"
+date: "`r Sys.Date()`"
+output:
+  ioslides_presentation: 
+    widescreen: true
+    smaller: true
+    css: style.css
+toc: no
+---
+
+```{r,echo=FALSE}
+## Set default options for the knitr RMD processing
+knitr::opts_chunk$set(echo=TRUE,warning=FALSE,message=FALSE,fig.width=5,fig.height=5,cache=FALSE,autodep=TRUE, results="markdown")
+```
+
+```{r libraries,cache=FALSE,echo=FALSE,results="hide"}
+library(tidyverse)
+library(cowplot)
+theme_set(theme_grey())
+```
+
+
+
+# Tidyverse
+
+## Why tidyverse
+
+> * Cleaner code
+> * Useful automatisation
+> * Great data processing language
+> * Coherent structure of packages
+
+## Why *not* tidyverse
+
+> * Changes the logic of the language
+> * Makes your code depend on tidyverse
+> * Fewer people will understand your code
+> * Easy things are even easier, hard things are even harder
+> * Useful mostly for data frames and lists (but that's not entirely true)
+
+## My god, it's full of packages
+
+
+![](01_tidyverse_data_science.png){width=600px}
+
+
+## Tidyverse packages
+
+|Package|What does it do|What does it replace / introduce|
+|-------|---------------|---------------------|
+|rlang|Main tidyverse framework, a redefinition of R|A lot of base R constructs; introduces quosures|
+|tibble|New model of data frames|data frames|
+|dplyr|Main data frame manipulation tool|data frame operations|
+|tidyr|Manipulating data formats, pivoting|e.g. reshape & co|
+|magrittr|Introducing pipes to R|The `%>%` operator & co|
+|purrr|Functional constructs|lapply, sapply & co|
+|readr|read and write data frames|read.table & co|
+|forcats|dealing with factors|introduces goodies for working with factors|
+|stringr|dealing with strings|introduces goodies for working with strings|
+|broom|standardizing output of common functions|`summary()`|
+|ggplot2|Graphics based on "Grammar of graphics"|replaces base plotting utilities|
+
+## How to use tidyverse
+
+ * load with `library(tidyverse)`
+ * some packages (e.g. `magrittr`) need to be loaded separately
+ * never load `plyr` after `dplyr`
+
+# Introducing Pipes
+
+## Introducing Pipes
+
+In R, almost everything is a function, but some functions are special: they
+look like operators.
+
+```{r echo=TRUE,results="markdown"}
+vec <- 1:10
+`[`(vec, 2)
+
+`+`(1, 2)
+```
+
+## Introducing Pipes
+
+It is possible to create your own functions which work like operators.
+
+```{r echo=TRUE,results="markdown"}
+`%cup%` <- function(x, y) union(x, y)
+1:10 %cup% 2:15
+
+`%cap%` <- function(x, y) intersect(x, y)
+1:10 %cap% 2:15
+```
+
+The names for the operators here come from the $\LaTeX$ symbol names for
+mathematical set operators $\cup$ ("cup") and $\cap$ ("cap").
+
+<div class="columns-2">
+</div>
+
+## Introducing Pipes
+
+How about an operator that calls just any function? 
+
+```{r, eval=FALSE}
+a %>% some_func(b)
+
+## is the same as
+
+`%>%`(a, some_func(b))
+
+## is the same as
+some_func(a, b)
+```
+
+## Introducing Pipes
+
+Pipes work for *anything*, not just the tidyverse!
+
+```{r}
+df <- data.frame(1:1000)
+
+df %>% head
+```
+
+## Ceci n'est pas une pipe
+
+![](MagrittePipe.jpg){width=600px}
+
+## Ceci n'est pas une pipe
+
+Magrittr defines a number of aliases – and of course the pipe operator,
+`%>%`.
+However, there is more to this package.
+
+ * aliases (extract, set\_names etc.)
+ * `%$%` operator (pipe version of `attach`)
+
+(Demo)
+
+  
+
+## Simple demonstration
+
+(Demo)
+
+
+## Other concepts and packages
+
+ * ggplot2: the tidyverse way of plotting
+ * (r)markdown / knitr: clean documentation
+
+# Introducing tibbles
+
+## So many ways to skin a cat
+
+data.frame has so many problems. Luckily, there are also so many solutions.
+
+ * data.table / DT
+ * DataFrame
+ * tibble (tidyverse, formerly known as data\_frame)
+ * special objects (ExpressionSet etc.)
+
+## What is special about tibble
+
+ * Hadley Wickham hates row names
+ * tbl[,3] returns a tbl rather than a vector
+ * nicer printing
+ * extra properties (`group_by` etc.)
+
+(Demo)
+
+## Fine, but...
+
+If you want to view more than the default portion of the tibble, do
+
+```{r,results="hide"}
+print(starwars, n=Inf, width=Inf)
+```
+
+Row names: convert them to a column, use filter() instead of `[`
+
+## Reading data with readr
+
+ * read\_{tsv,csv,...}, write…
+ * better, cleaner, faster
+ * explicit
+ * will never turn a string into a factor
+
+
+
+# dplyr
+
+## dplyr: managing data
+
+ * select, mutate, filter, rename, pull, arrange
+ * distinct, sample\_{n,frac}, add\_count, add\_tally
+ * summarise, \_at, \_if
+ * group\_by
+
+(Demo)
+
+## select
+
+Select columns from data:
+
+    mtcars %>% select(mpg)
+    mtcars %>% select(mpg, Cylinder=cyl)
+    mtcars %>% select(starts_with("d"))
+
+## mutate
+
+Create new columns
+
+    mtcars %>% mutate(lp100km=282.5/mpg)
+
+## filter
+
+Select rows from the data
+
+    mtcars %>% filter(hp > 100)
+    mtcars %>% filter(hp > 100 & cyl < 8)
+
+## pull
+
+Get a single column as a vector
+
+    mtcars %>% pull(mpg)
+
+## arrange
+
+Sort the rows of the data 
+
+    mtcars %>% arrange(mpg)
+
+# tidyr
+
+## Long vs wide data
+
+ `gather()`, `spread()`
+
+(Demo)
+
+## group\_by
+
+Essentially, add information to the tibble that the data is grouped by a
+variable. This does not change the actual data!
+
+```{r}
+identical(table2, table2 %>% group_by(country))
+identical(as.data.frame(table2), 
+          as.data.frame(table2 %>% group_by(country)))
+```
+
+You can then use several other functions.
+
+(Demo)
+
+
+## Use with caution!
+
+While tidyverse is great for interactive work, you should use it with
+caution in your packages:
+
+```{r eval=FALSE}
+foo <- function(df) {
+  cols <- c("sex", "age")
+  df %<>% select(cols)
+
+  # ... do something
+
+  return(df)
+} 
+```
+
+What happens when df contains `cols`?
+
+(Demo)
+
+## Solution
+
+Be wary of tidyverse shortcuts. Always assume the worst case scenario and
+be explicit in your code:
+
+```{r eval=FALSE}
+# make sure you select columns from variable 
+# and not by name
+df %<>% select(!!cols)
+```
+
+# Mapping
+
+## Mapping in R / in R + tidyverse
+
+```{r}
+tmp <- list(a=1, b=2, c=1:10)
+
+lapply(tmp, length)
+lapply(tmp, function(x) paste(x, collapse=", "))
+```
+
+## Mapping in R / in R + tidyverse
+
+```{r}
+map(tmp, ~ paste(., collapse=", "))
+
+## type conversion is always specified
+map_chr(tmp, ~ paste(., collapse=", "))
+```
+
+
+## Why both worlds?
+
+ * The \*pply functions are still widely used, so you will see them in code
+ * sometimes using tidyverse does not really give you a bonus
+
+## lapply & sapply
+
+`lapply` takes a list and returns a list without names.
+
+`sapply` takes a list and tries to simplify it to a relevant object (data
+frame, vector etc.) Notably, it uses names of the list, and you can force
+it to always return a list.
+
+Compare:
+
+```{r,eval=FALSE}
+lapply(starwars$name, nchar)
+sapply(starwars$name, nchar)
+sapply(starwars$name, nchar, simplify=FALSE)
+```
+
+
+(Demo)
+
+## `replicate`
+
+This is a special form of `sapply` which simply calls a function `n` times
+and returns the results in a list. Note that it uses an expression and not
+a function as a second argument.
+
+    ## create 10 vectors with random numbers
+    replicate(10, rnorm(10), simplify=FALSE)
+
+## General form
+
+    xxxapply(data, ..., function)
+
+Where `function` can be a closure (anonymous function), defined in place:
+
+    ## replace spaces by underscores
+    sapply(starwars$name, 
+      function(x) 
+          gsub(" ", "_", starwars$name))
+
+## apply
+
+`apply` is for data frames and matrices (two-dimensional objects).
+The second argument determines whether it works row-wise (1) or column-wise
+(2):
+
+
+    ## matrix of random numbers, 3 x 20
+    mtx <- matrix(rnorm(60), ncol=3)
+
+    apply(mtx, 1, sum)
+    apply(mtx, 2, sum)
+
+## There is a simpler way
+
+Don't forget following convenience functions:
+
+ * `colSums`, `colMeans`
+ * `rowSums`, `rowMeans`
+
+## tapply
+
+`tapply`  applies a function to vector split by levels of a factor. For
+example, we might want to know what is the mean mpg for cars with different
+number of cylinders:
+
+    tapply(mtcars$mpg, mtcars$cyl, mean)
+
+This is a really important function.
+
+# Mapping in dplyr
+
+## `group_by`
+
+`group_by` introduces a grouping in a data frame that can be then used by
+`summarise` to calculate something reasonable. This is a lot like `tapply`.
+
+    mtcars %>% group_by(cyl) %>%
+      summarise(m.hp=mean(hp))
+
+## `group_by`
+
+This has the advantage that you can define a whole range of calculations
+based on any column in the data:
+
+    mtcars %>% group_by(cyl) %>%
+      summarise(m.hp=mean(hp), m.wt=mean(wt))
+
+Or you can use a more complex function:
+
+    ## which planet has the largest mean BMI?
+    starwars %>% group_by(homeworld) %>%
+      summarise(bmi = mean(mass/(height/100)^2))
+
+
+# `purrr`
+
+## `map` and co.
+
+`map` works very much like `sapply(..., simplify=F)`, and its variants
+explicitely try to cast the result in an appriopriate format.
+
+ * `map_lgl` -- logical vector
+ * `map_chr` -- character vector
+ * `map_int` -- integer vector
+ * `map_dbl` -- double (floating point) vector
+
+## The weird syntax of `map`
+
+To make the map functions more terse, map family adopted a particular way
+of formulating custom functions. `.` (dot) is automatically used as
+argument, and instead of writing `function(x) ...` you write `~ ...`:
+
+ * sapply:
+
+        ## return 1, 2, ... 10 random numbers
+        sapply(1:10, function(x) rnorm(x))
+
+ * map:
+
+        map(1:10, ~ rnorm(.))
+
+## Formula notation in dplyr
+
+The same notation can be used also in dplyr with the `mutate_all` and
+`rename_all` functions:
+
+    ## Replace "none" by NA 
+    starwars %>% mutate_all(~ gsub("none", NA, .))
+
+    ## Modify all variable names
+    starwars %>% rename_all(~ paste0("Var_", .))
+
+## `map_dfr` and `map_dfc`
+
+These two create a data frame. If your function returns each time a data
+frame, map will join these – either by rows (`map_dfr`) or by
+columns (`map_dfc`).
+
+    ## create a list with 10 random vectors
+    rv <- map(1:10, ~ rnorm(10))
+    names(rv) <- LETTERS(1:10)
+
+    ## calculate the mean and sd
+    map_dfc(rv, ~ data.frame(mean=mean(.), sd=sd(.)))
+
+## `map2` et co.
+
+Sometimes you want to go over two or more vectors at the same time. 
+Instead of `.` you have two automatic variable names, `.x` and `.y`.
+
+    ## add number of vehicles to each name
+    sw_names <- starwars$name
+    sw_vehcls <- starwars$vehicles
+    map2_chr(sw_names, sw_vehcls, 
+      ~ paste0(.x, "_", length(.y)))
+
+
+## `pmap` and co.
+
+You can also use `pmap` to apply it to a list of vectors in which each
+vector has the same length. But remember: data.frame is also a list! So you
+can apply pmap to a data frame and process each row.
+
+    starwars %>% 
+      select(name, hair_color, eye_color) %>% 
+      mutate_all(~ gsub("none", NA, .)) %>%
+      drop_na() %>%
+      pmap_chr(~ sprintf("%s has %s hair and %s eyes", ...))
+
+
+
+
+# Principles of data presentation
+
+## Edward Tufte
+
+*“Graphical excellence is that which  
+gives to the viewer the greatest
+number of ideas in the shortest time 
+with the least ink in the smallest
+space.”*
+
+
+## Less is more
+
+Data visualization is all about communication.
+
+Just like in graphics design, less is more. To get a good graphics remove
+all excess ink.
+
+## Average MPG depending on number of cylinders
+
+```{r barplot_01,eval=FALSE}
+```
+
+## All bells and whistles
+
+
+```{r barplot_01,fig.width=6,fig.height=5,echo=FALSE}
+p <- mtcars %>% group_by(cyl) %>% 
+      summarise(mean_mpg=mean(mpg)) %>%
+      mutate(cyl=factor(cyl)) %>% 
+      ggplot(aes(x=cyl, y=mean_mpg, fill=cyl))
+p + geom_bar(stat="identity", mapping=aes(fill=cyl)) + 
+  theme(axis.line=element_line(size=1, arrow=arrow(length=unit(0.1, "inches"))))
+
+```
+
+##
+
+*“Clutter and confusion are failures of design, not attributes of
+information.”* (Tufte)
+
+## Remove legend
+
+
+```{r barplot_02,fig.width=6,fig.height=5,echo=FALSE}
+p + geom_bar(stat="identity", mapping=aes(fill=cyl)) + 
+  theme(legend.position="none", 
+    axis.line=element_line(size=1, arrow=arrow(length=unit(0.1, "inches"))))
+
+```
+
+
+## Remove axes
+
+```{r barplot_03,fig.width=6,fig.height=5,echo=FALSE}
+p + geom_bar(stat="identity", mapping=aes(fill=cyl)) + 
+  theme(legend.position="none")
+```
+
+
+## Remove color
+
+```{r barplot_04,fig.width=6,fig.height=5,echo=FALSE}
+p + geom_bar(stat="identity", fill="#666666") + 
+  theme(legend.position="none")
+```
+
+
+## Narrow bars
+
+```{r barplot_05,fig.width=6,fig.height=5,echo=FALSE}
+p + geom_bar(stat="identity", fill="#666666", width=0.5) + 
+  theme(legend.position="none")
+```
+
+
+## Remove vertical grid
+
+```{r barplot_06,fig.width=6,fig.height=5,echo=FALSE}
+p + geom_bar(stat="identity", fill="#666666", width=0.5) + 
+  theme(legend.position="none", panel.grid.major.x=element_blank())
+```
+
+
+## Remove grey background
+
+```{r barplot_07,fig.width=6,fig.height=5,echo=FALSE}
+p + geom_bar(stat="identity", fill="#666666", width=0.5) + 
+  theme(legend.position="none", panel.grid.major.x=element_blank(), 
+    panel.ontop=T, panel.background=element_rect(fill="#FFFFFF00"), 
+    panel.grid.major.y=element_line(size=1, color="white"), 
+    panel.grid.minor.y=element_line(size=1, color="white"))
+```
+
+## Add meaningful labels
+
+```{r barplot_08,fig.width=6,fig.height=5,echo=FALSE}
+p + geom_bar(stat="identity", fill="#666666", width=0.5) + 
+  theme(legend.position="none", panel.grid.major.x=element_blank(), 
+    panel.ontop=T, panel.background=element_rect(fill="#FFFFFF00"), 
+    panel.grid.major.y=element_line(size=1, color="white"), 
+    panel.grid.minor.y=element_line(size=1, color="white")) + 
+    ylab("Mean MPG") + xlab("Number of cylinders")
+```
+
+
+##
+
+    p + geom_bar(stat="identity", fill="#666666", width=0.5) +
+      theme(legend.position="none", 
+        panel.grid.major.x=element_blank(),
+        panel.ontop=T, 
+        panel.background=
+            element_rect(fill="#FFFFFF00"),
+        panel.grid.major.y=
+            element_line(size=1, color="white"),
+        panel.grid.minor.y=
+            element_line(size=1, color="white")) + 
+        ylab("Mean MPG") + 
+        xlab("Number of cylinders")
+
+## Box plots: default R
+
+```{r boxplot_01,fig.width=8,fig.height=5}
+boxplot(hwy ~ class, data=mpg)
+```
+
+## Box plots: Tufte
+
+```{r boxplot_02,fig.width=8,fig.height=5,echo=FALSE}
+toupper1st <- function(x) 
+  paste0(toupper(substring(x, 1, 1)), substring(x, 2))
+mpg %>% mutate(class=toupper1st(class)) %>% 
+  ggplot(aes(class, hwy)) + geom_tufteboxplot() + theme_tufte() + xlab("") + 
+  theme(axis.text=element_text(size=14), axis.title.y=element_text(size=18, margin=margin(0,20,0,0))) +
+  theme(axis.ticks.x=element_blank()) +
+  theme(axis.text.x=element_text(margin=margin(30,0,0,0)))
+```
+
+## Box plots: Tufte
+
+```{r boxplot_02,eval=FALSE}
+```
+
+## Scatter plot variants
+
+```{r scatter_themes,fig.width=8,fig.height=5,echo=FALSE}
+p <- list()
+p$p1 <- ggplot(mtcars, aes(x=disp, y=hp, color=factor(cyl))) + geom_point() 
+p$p2 <- ggplot(mtcars, aes(x=disp, y=hp, color=factor(cyl))) + geom_point() + 
+  theme_par()
+p$p3 <- ggplot(mtcars, aes(x=disp, y=hp, color=factor(cyl))) + geom_point() + 
+  theme_cowplot()
+p$p4 <- ggplot(mtcars, aes(x=disp, y=hp, color=factor(cyl))) + geom_point() + 
+  theme_tufte()
+
+p <- map(p, ~ . + theme(plot.margin=margin(20, 0, 0, 0)))
+plot_grid(plotlist=p, labels=c("Default", "Par", "Cowplot", "Tufte"))
+
+```
+
+##
+
+    
+<div class="blank"></div> 
+<div class="blank"></div> 
+<div class="blank"></div>     
+    
+
+*“Above all else show the data.”* (Tufte)
+
+# Eine kleine Farbenlehre
+
+
+## Farbenlehre (Color theory)
+
+ * What is the function of color on the plot?
+ * Does the color help or distract?
+
+
+## Representing colors
+
+There are many ways to represent colors. In R, we most frequently use the
+RGB scheme in which each color is composed of three values for each of the
+three colors: red, green and blue.
+
+One way is to choose values between 0 and 1; another, between 0 and 255.
+The latter can be represented using hexadecimal notation, in which the
+value goes from 0 to FF (`15 * 16 + 15 = 255`). This is a very common
+notation, used also in HTML:
+
+  * `"#FF0000"` or `c(255, 0, 0)`: red channel to the max, blue and green
+    to the minimum. The result is color red.
+  * `"#00FF00"`: bright green
+  * `"#000000"`: black
+  * `"#FFFFFF"`: white
+
+## Getting the colors
+
+   * To get the color from numbers in 0…1 range:
+
+        rgb(0.5, 0.7, 0) # returns "#80B300"
+
+   * To get the color from numbers in 0…255 range:
+       
+        rgb(255, 128, 0, maxColorValue=255)
+
+## Alpha channel: transparency
+
+Useful way to handle large numbers of data points. `#FF000000`: fully
+transparent; `#FF0000FF`: fully opaque.
+
+```{r scatter,fig.width=8,fig.height=4,eval=FALSE}
+```
+
+## Alpha channel: transparency
+
+```{r scatter,fig.width=8,fig.height=4,echo=FALSE}
+x <- rnorm(10000)
+y <- x + rnorm(10000)
+p1 <- ggplot(NULL, aes(x=x, y=y)) + geom_point() + 
+  theme_tufte() + theme(plot.margin=unit(c(2,1,1,1), "cm"))
+p2 <- ggplot(NULL, aes(x=x, y=y)) + geom_point(color="#6666661F") + 
+  theme_tufte() + theme(plot.margin=unit(c(2,1,1,1),"cm"))
+plot_grid(p1, p2, labels=c("Black", "#6666661F"))
+```
+
+## Palettes
+
+It is not easy to get a nice combination of colors (see default plot in ggplot2
+to see how *not* to do it).
+
+There are numerous palettes in numerous packages.  One of the most popular is
+`RColorBrewer`. You can use it with both base R and `ggplot2`.
+
+## RColorBrewer palettes
+
+```{r rcolorbrewer,fig.width=8,fig.height=5,out.width="70%"}
+library(RColorBrewer)
+par(mar=c(0,4,0,0))
+display.brewer.all()
+```
+
+
+
+## RColorBrewer palettes: color blind
+
+```{r rcolorbrewer2,fig.width=8,fig.height=5,out.width="70%"}
+par(mar=c(0,4,0,0))
+display.brewer.all(colorblindFriendly=T)
+```
+
+## Iris data set
+
+    data("iris")
+
+*The use of multiple measurements in taxonomic problems as an example of linear
+discriminant analysis.* Fisher 1936
+
+
+
+## Gallery of RColorBrewer palettes
+
+```{r pals01,fig.width=8,fig.height=5,out.width="70%"}
+
+ggplot(iris, aes(x=Sepal.Length, y=Sepal.Width, color=Species)) + 
+  geom_point(size=4) + theme_tufte() + 
+  theme(axis.title.y=element_text(margin=margin(0,10,0,0)), 
+        axis.title.x=element_text(margin=margin(10, 0, 0, 0)))
+```
+
+## Dark2
+
+```{r pals02,fig.width=8,fig.height=5,out.width="70%"}
+ggplot(iris, aes(x=Sepal.Length, y=Sepal.Width, color=Species)) + 
+  geom_point(size=4) + scale_color_brewer(palette="Dark2")  + theme_tufte() + 
+  theme(axis.title.y=element_text(margin=margin(0,10,0,0)), 
+        axis.title.x=element_text(margin=margin(10, 0, 0, 0)))
+
+```
+
+
+## Paired
+
+```{r pals03,fig.width=8,fig.height=5,out.width="70%"}
+ggplot(iris, aes(x=Sepal.Length, y=Sepal.Width, color=Species)) + 
+  geom_point(size=4) + scale_color_brewer(palette="Paired") + theme_tufte() + 
+  theme(axis.title.y=element_text(margin=margin(0,10,0,0)), 
+        axis.title.x=element_text(margin=margin(10, 0, 0, 0)))
+
+```
+
+## Set2
+
+```{r pals04,fig.width=8,fig.height=5,out.width="70%"}
+ggplot(iris, aes(x=Sepal.Length, y=Sepal.Width, color=Species)) + 
+  geom_point(size=4) + scale_color_brewer(palette="Set2") + theme_tufte() + 
+  theme(axis.title.y=element_text(margin=margin(0,10,0,0)), 
+        axis.title.x=element_text(margin=margin(10, 0, 0, 0)))
+
+```
+
+
+
+
+# Graphics systems in R
+
+## Important message
+
+It is not important which system you use. It is important that you first
+come up with the idea how you want the data to be plotted, and that you can
+plot it – with whatever means you can. (Where should you look for a lost
+watch?)
+
+
+## Graphics in basic R: Pros
+
+
+  * easy learning curve
+  * good for quick and dirty plots
+  * relatively easy to add arbitrary elements to the plots
+  * widely spread
+  * many specialized packages doing what otherwise cannot be easily
+    achieved
+
+## Graphics in basic R: Cons
+  
+  * messy
+  * not standardized
+  * once you put something on the plot, it stays here
+  * some things are incredibly hard to achieve
+  * by default ugly as sin
+
+
+## Graphics in ggplot2: Pros
+
+  * well thought through and organized
+  * easy to modify a ready made plot
+  * dozens of different plot types with a similar interface
+  * tons of ggplot2 based packages
+  * widely spread
+
+## Graphics in ggplot2: Cons
+
+  * steeper learning curve
+  * some things are incredibly hard to achieve
+  * if it's not there, you are on your own
+  * by default ugly as sin
+
+## Things that basic R sucks at
+
+ * changing the overall esthetics of the plot
+ * modifying certain parameters (like text)
+
+## Things that ggplot2 sucks at
+
+ * networks (use igraph or graphviz for that)
+ * identifying points on a plot, interactive graphics
+ * 3D graphics
+
+
+## ggplot2 overview
+
+ * mapping between variables and an "esthetics"
+     * x, y
+     * color, fill
+     * symbol
+     * ymin/ymax, xmin/xmax (error bars)
+ * geom (points, segments, bars, whatever)
+ * guides (axes, legends)
+ * theme (specific look of things)
+
+## Example session
+ 
+We will now use world inequality data to create a bar plot.
+
+```{r wid,fig.width=8,fig.height=5,eval=FALSE,out.width="50%"}
+wid <- read_excel("WIID_19Dec2018.xlsx")
+wid %<>% drop_na(gini_reported, q1:q5, d1:d10)
+wid2015 <- wid %>% filter(year==2015 & 
+                          region_un == "Europe" & 
+                          population > 5e6)
+wid2015sel <- wid2015  %>% 
+  filter(quality=="High") %>%
+  filter(!duplicated(country)) %>% 
+  select(country, gini_reported, q1:q5, d1:d10)
+
+data <- wid2015sel %>% 
+  gather(q1:q5, key="quantile", value="proportion") %>%
+  mutate(quantile=factor(quantile, levels=paste0("q", c(2, 1, 5, 4, 3))))
+
+## we mess the quantiles on purpose
+p <- data %>%
+  ggplot(aes(country, proportion, fill=quantile)) +
+  geom_bar(stat="identity") + coord_flip()
+p
+```
+
+## Example session
+ 
+
+
+```{r wid,fig.width=8,fig.height=5,echo=FALSE,out.width="90%"}
+```
+
+## First, reorder the quantile factor
+
+```{r wid2,fig.width=8,fig.height=5,out.width="50%"}
+data <- data %>% mutate(quantile=factor(quantile, levels=paste0("q", 5:1)))
+p <- data %>%
+  ggplot(aes(country, proportion, fill=quantile)) +
+  geom_bar(stat="identity") + coord_flip()
+p
+```
+
+## Reorder the countries
+
+```{r wid3,fig.width=8,fig.height=5,out.width="50%"}
+data <- wid2015sel %>% 
+  mutate(country=reorder(country, desc(gini_reported))) %>%
+  gather(q1:q5, key="quantile", value="proportion") %>%
+  mutate(quantile=factor(quantile, levels=paste0("q", 5:1)))
+p <- data  %>%
+  ggplot(aes(country, proportion, fill=quantile)) +
+  geom_bar(stat="identity") + coord_flip()
+p
+```
+
+## Make it nice!
+
+```{r wid4,fig.width=8,fig.height=5,out.width="50%",eval=FALSE}
+p + theme_tufte() + scale_fill_brewer(palette="Blues") +
+  ylab("Proportion of wealth") + xlab("Country") +
+  guides(fill=guide_legend(reverse=TRUE))
+```
+
+## Make it nice!
+
+```{r wid4,fig.width=8,fig.height=5,out.width="90%",echo=FALSE}
+```
+
+
+# ggplot2 tips and tricks
+
+## Working with themes
+
+The `theme()` and `theme_*()` functions return an object of the class
+`theme` which can be added to a ggplot in order to change appearance of
+several elements.  The list of the elements you can theme can be found in
+the `theme()` help page. You can add themes. The result is again a theme
+object that you can reuse and even set as default. This makes it easy to
+create your own themes.
+
+(Demo)
+
+## Cowplot
+
+There are two important functions in cowplot: predefined `theme_cowplot()`,
+which is quite nice, and `plot_grid()`, which rocks. `plot_grid` allows you
+to create separate plots and combine them in a number of ways. You can even
+draw a plot in basic R, record it and include it in your `plot_grid` call!
+
+Note: Cowplot defines its own theme, `theme_cowplot()` and *automatically sets it
+when loaded*. It stays there even if you unload the package, however you
+can always use `theme_set()` to set the default theme to something else.
+
+(Demo)
+
+## `facet_grid`
+
+You can get a lattice-like representation using `facet_grid()` function.
+For example:
+
+
+```{r facets,fig.width=7,fig.height=3.5,echo=TRUE}
+ggplot(mpg, aes(cty, hwy)) + geom_point() + facet_grid(rows=mpg$cyl)
+```
+
